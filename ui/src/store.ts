@@ -133,7 +133,7 @@ export function applyMessage(msg: ServerMessage): void {
     case "message.tool":
       updateTranscript(msg.sessionId, (t) => ({
         ...t,
-        entries: [...t.entries, { role: "tool", text: msg.text }],
+        entries: [...t.entries, { role: "tool", text: msg.text, ...(msg.diff ? { diff: msg.diff } : {}) }],
       }));
       return;
     case "message.complete":

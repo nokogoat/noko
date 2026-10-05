@@ -6,9 +6,10 @@ import LayerShell from "gi://Gtk4LayerShell?version=1.0";
 import Pango from "gi://Pango?version=1.0";
 import cairo from "cairo";
 import { createComputed, createMemo, createState, For } from "gnim";
-import type { SessionInfo } from "../../shared/protocol.ts";
+import type { FileDiff, SessionInfo } from "../../shared/protocol.ts";
 import { acceptImageDrops } from "./attachments.ts";
 import { Composer } from "./Composer.tsx";
+import { DiffView, diffStats } from "./DiffView.tsx";
 import { activityText, STATUS_LABEL, usageText, usageTooltip } from "./format.ts";
 import { claimKeyboardOnClick, releaseKeyboard, releaseKeyboardWhenDone } from "./keyboard.ts";
 import { shortenPath } from "./paths.ts";
@@ -149,8 +150,18 @@ function SessionPicker() {
   );
 }
 
+/** Appel d'outil qui modifie un fichier : résumé, et l'avant/après au clic. */
+function ToolDiff({ entry, diff }: { entry: Entry; diff: FileDiff }) {
+  return (
+    <Gtk.Expander class="message tool" label={`${entry.text}  ${diffStats(diff)}`}>
+      <DiffView diff={diff} header={false} />
+    </Gtk.Expander>
+  );
+}
+
 /** Message sélectionnable : clic (clavier pris pour Ctrl+C) ou clic droit → Copier. */
 function Message({ entry }: { entry: Entry }) {
+  if (entry.diff !== undefined) return <ToolDiff entry={entry} diff={entry.diff} />;
   return (
     <Gtk.Label
       class={`message ${entry.role}`}

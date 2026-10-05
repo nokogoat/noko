@@ -325,3 +325,46 @@ window.noko-catcher {
   border-radius: 8px;
   padding: 2px 8px;
 }
+
+/* --- Avant/après (diff) --------------------------------------------------- */
+
+.diff {
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.diff-title {
+  font-family: sans-serif;
+  color: var(--noko-fg);
+  margin-bottom: 2px;
+}
+
+.diff-hunk {
+  color: var(--noko-accent);
+  font-size: 0.9em;
+  margin-top: 4px;
+}
+
+.diff-line {
+  padding: 0 6px;
+}
+
+.diff-add {
+  color: var(--noko-ok);
+  background: alpha(var(--noko-ok), 0.12);
+}
+
+.diff-del {
+  color: var(--noko-error);
+  background: alpha(var(--noko-error), 0.12);
+}
+
+.diff-ctx {
+  color: var(--noko-muted);
+  background: var(--noko-surface);
+}
+
+.raw-input > title {
+  font-size: 0.85em;
+  color: var(--noko-muted);
+}

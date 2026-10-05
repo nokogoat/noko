@@ -1,6 +1,7 @@
 // Carte d'une demande d'autorisation. Règles (CLAUDE.md, section Sécurité) :
 // l'entrée exacte de l'outil est affichée champ par champ, jamais un résumé ;
-// pas de bouton « tout autoriser » ; texte brut uniquement.
+// pas de bouton « tout autoriser » ; texte brut uniquement. Pour Edit et Write, l'avant/après
+// s'y ajoute ; les champs de contenu restent à un clic (ouverts si le diff est incomplet).
 
 import GLib from "gi://GLib?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
@@ -8,11 +9,14 @@ import Pango from "gi://Pango?version=1.0";
 import { createComputed, createState, onCleanup } from "gnim";
 import type { PermissionRequest } from "../../shared/protocol.ts";
 import { answerPermission } from "./actions.ts";
+import { DiffView } from "./DiffView.tsx";
 import { sessions } from "./store.ts";
 
 /** Délai avant de pouvoir autoriser : évite le clic sur une carte apparue sous la souris. */
 const ARM_DELAY_MS = 800;
 const FIELDS_MAX_HEIGHT = 280;
+/** Champs dont l'avant/après tient lieu d'affichage principal. */
+const CONTENT_FIELDS = new Set(["old_string", "new_string", "content"]);
 
 /** Valeur affichée telle quelle : chaîne brute, sinon JSON indenté. */
 function displayValue(value: unknown): string {
@@ -100,9 +104,23 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
         maxContentHeight={FIELDS_MAX_HEIGHT}
       >
         <Gtk.Box class="fields" orientation={Gtk.Orientation.VERTICAL} spacing={6}>
-          {Object.entries(request.input).map(([name, value]) => (
-            <Field name={name} value={value} />
-          ))}
+          {request.diff !== null ? <DiffView diff={request.diff} /> : null}
+          {Object.entries(request.input)
+            .filter(([name]) => request.diff === null || !CONTENT_FIELDS.has(name))
+            .map(([name, value]) => (
+              <Field name={name} value={value} />
+            ))}
+          {request.diff !== null ? (
+            <Gtk.Expander class="raw-input" label="Entrée exacte" expanded={request.diff.truncated}>
+              <Gtk.Box orientation={Gtk.Orientation.VERTICAL} spacing={6}>
+                {Object.entries(request.input)
+                  .filter(([name]) => CONTENT_FIELDS.has(name))
+                  .map(([name, value]) => (
+                    <Field name={name} value={value} />
+                  ))}
+              </Gtk.Box>
+            </Gtk.Expander>
+          ) : null}
         </Gtk.Box>
       </Gtk.ScrolledWindow>
       <Gtk.Box spacing={6}>
