@@ -110,6 +110,9 @@ test("le handler SDK n'autorise que sur décision explicite, sans modifier l'ent
     onAssistantText() {},
     onTurnEnd() {},
     onExit() {},
+    onActivity() {},
+    onToolUse() {},
+    onUsage() {},
     requestPermission: decide,
   });
 

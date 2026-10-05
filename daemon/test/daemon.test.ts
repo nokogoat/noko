@@ -432,3 +432,44 @@ test("permissions : entrée trop grosse pour être affichée → refus immédiat
   assert.deepEqual((await c.next("state.snapshot")).permissions, []);
   c.sock.destroy();
 });
+
+test("activité, outils et consommation sont diffusés sans être enregistrés", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  const id = (await c.next("session.update")).session.id;
+  const fake = fakes[0]!;
+  fake.events.onInit("claude-a");
+  assert.deepEqual((await c.next("session.update", (m) => m.session.status === "running")).session.activity, {
+    kind: "thinking",
+  });
+
+  fake.events.onActivity({ kind: "tool", tool: "Bash" });
+  await c.next("session.update", (m) => m.session.activity?.kind === "tool");
+  fake.events.onToolUse("Bash : ls");
+  assert.equal((await c.next("message.tool")).text, "Bash : ls");
+
+  const usage = { contextTokens: 1200, contextWindow: 200000, outputTokens: 50, costUsd: 0.01 };
+  fake.events.onUsage(usage);
+  assert.deepEqual((await c.next("session.update", (m) => m.session.usage !== null)).session.usage, usage);
+
+  // Pendant une demande d'autorisation, l'activité l'indique, puis revient.
+  const decision = fake.events.requestPermission(
+    { toolName: "Bash", input: { command: "rm x" }, title: null, reason: null, blockedPath: null },
+    new AbortController().signal,
+  );
+  await c.next("session.update", (m) => m.session.activity?.kind === "permission");
+  const { request } = await c.next("permission.request");
+  c.send({ type: "permission.answer", requestId: request.requestId, decision: "deny" });
+  await decision;
+  await c.next("session.update", (m) => m.session.activity?.kind === "tool");
+
+  fake.events.onTurnEnd(false);
+  assert.equal((await c.next("session.update", (m) => m.session.status === "idle")).session.activity, null);
+
+  // L'activité et la consommation ne sont pas persistées.
+  assert.deepEqual(
+    store.load().map((s) => [s.id, s.activity, s.usage]),
+    [[id, null, null]],
+  );
+  c.sock.destroy();
+});

@@ -8,6 +8,8 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { SessionActivity, SessionUsage } from "../../shared/protocol.ts";
+import { assistantEntries } from "./history.ts";
 import type { Decision, PermissionAsk } from "./permissions.ts";
 import { settingSourcesFor } from "./trust.ts";
 
@@ -19,6 +21,11 @@ export interface SessionEvents {
   onTurnEnd(isError: boolean): void;
   /** Fin de la session ; `error` est défini si elle s'est terminée sur une erreur. */
   onExit(error?: unknown): void;
+  /** Ce que fait Claude en ce moment ; null une fois le tour terminé. */
+  onActivity(activity: SessionActivity | null): void;
+  /** Appel d'outil, résumé pour la conversation. */
+  onToolUse(summary: string): void;
+  onUsage(usage: SessionUsage): void;
   /** Demande d'autorisation d'un outil : la décision vient de l'utilisateur, dans l'UI. */
   requestPermission(ask: PermissionAsk, signal: AbortSignal): Promise<Decision>;
 }
@@ -119,12 +126,15 @@ export function permissionHandler(events: SessionEvents): CanUseTool {
   };
 }
 
-function assistantText(msg: Extract<SDKMessage, { type: "assistant" }>): string {
-  const parts: string[] = [];
-  for (const block of msg.message.content) {
-    if (block.type === "text") parts.push(block.text);
-  }
-  return parts.join("");
+const TOOL_BLOCKS = new Set(["tool_use", "server_tool_use", "mcp_tool_use"]);
+
+/** Tokens présents dans le contexte lors d'un appel au modèle. */
+function contextSize(usage: {
+  input_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}): number {
+  return usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
 }
 
 export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }) => {
@@ -160,30 +170,54 @@ export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }
         events.onExit();
         return;
       }
+      const usage: SessionUsage = { contextTokens: 0, contextWindow: null, outputTokens: 0, costUsd: null };
       for await (const msg of q) {
         switch (msg.type) {
           case "system":
             if (msg.subtype === "init") events.onInit(msg.session_id);
+            else if (msg.subtype === "status" && msg.status === "compacting") events.onActivity({ kind: "compacting" });
             break;
-          case "stream_event":
+          case "stream_event": {
             // Uniquement le fil principal, pas les sous-agents.
-            if (
-              msg.parent_tool_use_id === null &&
-              msg.event.type === "content_block_delta" &&
-              msg.event.delta.type === "text_delta"
-            ) {
-              events.onDelta(msg.event.delta.text);
+            if (msg.parent_tool_use_id !== null) break;
+            const event = msg.event;
+            if (event.type === "message_start") {
+              events.onActivity({ kind: "thinking" });
+            } else if (event.type === "content_block_start") {
+              const block = event.content_block;
+              if (block.type === "thinking" || block.type === "redacted_thinking") {
+                events.onActivity({ kind: "thinking" });
+              } else if (block.type === "text") {
+                events.onActivity({ kind: "writing" });
+              } else if (TOOL_BLOCKS.has(block.type) && "name" in block && typeof block.name === "string") {
+                events.onActivity({ kind: "tool", tool: block.name });
+              }
+            } else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+              events.onDelta(event.delta.text);
             }
             break;
+          }
           case "assistant":
-            if (msg.parent_tool_use_id === null) {
-              const text = assistantText(msg);
-              if (text !== "") events.onAssistantText(text);
+            if (msg.parent_tool_use_id !== null) break;
+            for (const entry of assistantEntries(msg.message)) {
+              if (entry.role === "tool") events.onToolUse(entry.text);
+              else events.onAssistantText(entry.text);
             }
+            usage.contextTokens = contextSize(msg.message.usage);
+            events.onUsage({ ...usage });
             break;
-          case "result":
+          case "result": {
+            // modelUsage et total_cost_usd sont cumulés depuis le début de query().
+            const models = Object.values(msg.modelUsage);
+            usage.outputTokens = models.reduce((sum, m) => sum + m.outputTokens, 0);
+            const windows = models.map((m) => m.contextWindow).filter((w) => w > 0);
+            usage.contextWindow = windows.length > 0 ? Math.max(...windows) : usage.contextWindow;
+            usage.costUsd = msg.total_cost_usd;
+            events.onUsage({ ...usage });
+            events.onActivity(null);
             events.onTurnEnd(msg.is_error);
             break;
+          }
         }
       }
       events.onExit();

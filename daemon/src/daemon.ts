@@ -185,6 +185,8 @@ export class Daemon {
         cwd,
         status: "starting",
         lastActivity: Date.now(),
+        activity: null,
+        usage: null,
       },
       runner: null,
       run: 0,
@@ -226,9 +228,31 @@ export class Daemon {
           if (isError) log("session.turn_error", { session: id });
           this.update(record, "idle");
         },
-        requestPermission: (ask, signal) => {
-          if (!live()) return Promise.resolve<Decision>("deny");
-          return this.requestPermission(id, ask, signal);
+        onActivity: (activity) => {
+          if (!live()) return;
+          record.info.activity = activity;
+          this.publish(record);
+        },
+        onToolUse: (summary) => {
+          if (!live()) return;
+          this.ipc.broadcast({ type: "message.tool", sessionId: id, text: summary });
+        },
+        onUsage: (usage) => {
+          if (!live()) return;
+          record.info.usage = usage;
+          this.publish(record);
+        },
+        requestPermission: async (ask, signal) => {
+          if (!live()) return "deny";
+          const previous = record.info.activity;
+          record.info.activity = { kind: "permission" };
+          this.publish(record);
+          const decision = await this.requestPermission(id, ask, signal);
+          if (live() && record.info.activity?.kind === "permission") {
+            record.info.activity = previous;
+            this.publish(record);
+          }
+          return decision;
         },
         onExit: (error) => {
           if (!live()) return;
@@ -273,11 +297,18 @@ export class Daemon {
   private update(record: SessionRecord, status: SessionStatus): void {
     record.info.status = status;
     record.info.lastActivity = Date.now();
+    if (status === "running") record.info.activity ??= { kind: "thinking" };
+    else record.info.activity = null;
     try {
       this.deps.store.save(record.info);
     } catch (err) {
       log("store.save_failed", { session: record.info.id, ...errorFields(err) });
     }
+    this.publish(record);
+  }
+
+  /** Diffuse l'état de la session sans l'enregistrer (activité, consommation). */
+  private publish(record: SessionRecord): void {
     this.ipc.broadcast({ type: "session.update", session: { ...record.info } });
   }
 

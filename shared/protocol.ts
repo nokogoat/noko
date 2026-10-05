@@ -31,6 +31,31 @@ export const SessionStatus = z.enum([
 ]);
 export type SessionStatus = z.infer<typeof SessionStatus>;
 
+/** Ce que fait Claude en ce moment (null : rien, en attente de l'utilisateur). */
+export const SessionActivity = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("thinking") }),
+  z.strictObject({ kind: z.literal("writing") }),
+  z.strictObject({ kind: z.literal("tool"), tool: z.string().min(1).max(256) }),
+  z.strictObject({ kind: z.literal("permission") }),
+  z.strictObject({ kind: z.literal("compacting") }),
+]);
+export type SessionActivity = z.infer<typeof SessionActivity>;
+
+const TokenCount = z.number().int().nonnegative();
+
+/** Consommation de la session (depuis son dernier démarrage ou sa dernière reprise). */
+export const SessionUsage = z.strictObject({
+  /** Tokens dans le contexte lors du dernier appel au modèle. */
+  contextTokens: TokenCount,
+  /** Taille de la fenêtre de contexte du modèle, si connue. */
+  contextWindow: TokenCount.nullable(),
+  /** Tokens générés par Claude (réflexion comprise). */
+  outputTokens: TokenCount,
+  /** Coût estimé en dollars au tarif de l'API (pas une facture). */
+  costUsd: z.number().nonnegative().nullable(),
+});
+export type SessionUsage = z.infer<typeof SessionUsage>;
+
 export const SessionInfo = z.strictObject({
   id: SessionId,
   /** Identifiant de session Claude Code (connu après l'init du SDK). */
@@ -40,11 +65,14 @@ export const SessionInfo = z.strictObject({
   status: SessionStatus,
   /** Dernière activité, en millisecondes depuis l'époque Unix. */
   lastActivity: z.number().int().nonnegative(),
+  activity: SessionActivity.nullable(),
+  usage: SessionUsage.nullable(),
 });
 export type SessionInfo = z.infer<typeof SessionInfo>;
 
 export const HistoryMessage = z.strictObject({
-  role: z.enum(["user", "assistant"]),
+  /** `tool` : résumé d'un appel d'outil (nom et argument principal). */
+  role: z.enum(["user", "assistant", "tool"]),
   text: z.string(),
 });
 export type HistoryMessage = z.infer<typeof HistoryMessage>;
@@ -153,6 +181,12 @@ export const ServerMessage = z.discriminatedUnion("type", [
   /** Texte complet d'un message de Claude, une fois terminé. */
   z.strictObject({
     type: z.literal("message.complete"),
+    sessionId: SessionId,
+    text: z.string(),
+  }),
+  /** Appel d'outil par Claude, résumé pour la conversation (nom et argument principal). */
+  z.strictObject({
+    type: z.literal("message.tool"),
     sessionId: SessionId,
     text: z.string(),
   }),

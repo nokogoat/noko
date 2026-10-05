@@ -74,6 +74,8 @@ export class SessionStore {
         cwd: row.data.cwd,
         status: "stopped",
         lastActivity: row.data.last_activity,
+        activity: null,
+        usage: null,
       });
       if (info.success) sessions.push(info.data);
     }

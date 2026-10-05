@@ -25,6 +25,8 @@ test("enregistre, relit et protège la base", () => {
     cwd: "/srv/projet",
     status: "running" as const,
     lastActivity: 1000,
+    activity: null,
+    usage: null,
   };
   store.save(info);
   store.save({ ...info, name: "renommé", lastActivity: 2000 });

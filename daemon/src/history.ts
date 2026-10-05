@@ -4,6 +4,7 @@
 import { getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { HistoryMessage } from "../../shared/protocol.ts";
+import { toolSummary } from "./tool-summary.ts";
 
 export type LoadHistory = (claudeSessionId: string, cwd: string) => Promise<HistoryMessage[]>;
 
@@ -13,6 +14,7 @@ export const HISTORY_MAX_MESSAGES = 200;
 export const HISTORY_MAX_BYTES = 768 * 1024;
 
 const TextBlock = z.object({ type: z.literal("text"), text: z.string() });
+const ToolUseBlock = z.object({ type: z.literal("tool_use"), name: z.string(), input: z.unknown() });
 const Content = z.union([z.string(), z.array(z.unknown())]);
 const ApiMessage = z.object({ content: Content });
 
@@ -28,6 +30,37 @@ export function messageText(message: unknown): string {
     if (text.success) parts.push(text.data.text);
   }
   return parts.join("");
+}
+
+/**
+ * Entrées de conversation d'un message de Claude, dans l'ordre : texte, puis un résumé
+ * par appel d'outil.
+ */
+export function assistantEntries(message: unknown): HistoryMessage[] {
+  const parsed = ApiMessage.safeParse(message);
+  if (!parsed.success) return [];
+  const content = parsed.data.content;
+  if (typeof content === "string") return content === "" ? [] : [{ role: "assistant", text: content }];
+  const entries: HistoryMessage[] = [];
+  let text = "";
+  const flush = () => {
+    if (text !== "") entries.push({ role: "assistant", text });
+    text = "";
+  };
+  for (const block of content) {
+    const t = TextBlock.safeParse(block);
+    if (t.success) {
+      text += t.data.text;
+      continue;
+    }
+    const tool = ToolUseBlock.safeParse(block);
+    if (tool.success) {
+      flush();
+      entries.push({ role: "tool", text: toolSummary(tool.data.name, tool.data.input) });
+    }
+  }
+  flush();
+  return entries;
 }
 
 /** Garde les messages les plus récents dans les limites de nombre et de taille. */
@@ -50,9 +83,12 @@ export const loadHistory: LoadHistory = async (claudeSessionId, cwd) => {
   const messages: HistoryMessage[] = [];
   for (const msg of raw) {
     if (msg.parent_tool_use_id !== null) continue;
-    if (msg.type !== "user" && msg.type !== "assistant") continue;
-    const text = messageText(msg.message);
-    if (text !== "") messages.push({ role: msg.type, text });
+    if (msg.type === "assistant") {
+      messages.push(...assistantEntries(msg.message));
+    } else if (msg.type === "user") {
+      const text = messageText(msg.message);
+      if (text !== "") messages.push({ role: "user", text });
+    }
   }
   return trimHistory(messages);
 };
