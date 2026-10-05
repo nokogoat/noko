@@ -1,8 +1,8 @@
 /* Thème par défaut. Toutes les couleurs passent par les variables ci-dessous :
    aucun code couleur ailleurs. */
 
-window.noko-panel {
-  --noko-bg: rgba(24, 24, 32, 0.92);
+window.noko-widget {
+  --noko-bg: rgba(24, 24, 32, 0.94);
   --noko-surface: rgba(255, 255, 255, 0.05);
   --noko-surface-hover: rgba(255, 255, 255, 0.09);
   --noko-fg: #e6e6ef;
@@ -16,81 +16,91 @@ window.noko-panel {
 
   background: transparent;
   color: var(--noko-fg);
+  font-size: 0.95em;
 }
 
-.panel {
-  margin: 8px;
+/* --- Pastille ------------------------------------------------------------- */
+
+button.pill {
+  padding: 6px 14px;
+  background: var(--noko-bg);
+  border: 1px solid var(--noko-border);
+  border-radius: 999px;
+  box-shadow: none;
+  color: var(--noko-fg);
+}
+
+button.pill:hover {
+  border-color: var(--noko-accent);
+}
+
+button.pill .name {
+  font-weight: bold;
+  color: var(--noko-accent);
+}
+
+button.pill .state {
+  color: var(--noko-muted);
+}
+
+button.pill .dot {
+  font-size: 0.8em;
+  color: var(--noko-muted);
+}
+
+button.pill.ready .dot {
+  color: var(--noko-ok);
+}
+
+button.pill.busy .dot {
+  color: var(--noko-accent);
+}
+
+button.pill.permission {
+  border-color: var(--noko-warn);
+}
+
+button.pill.permission .dot,
+button.pill.permission .state {
+  color: var(--noko-warn);
+}
+
+button.pill.offline .dot {
+  color: var(--noko-error);
+}
+
+/* --- Carte ---------------------------------------------------------------- */
+
+.card {
   padding: 12px;
   background: var(--noko-bg);
   border: 1px solid var(--noko-border);
   border-radius: var(--noko-radius);
 }
 
-.header {
-  margin-bottom: 10px;
+.header button.icon {
+  min-width: 28px;
+  padding: 2px 8px;
 }
 
-.title {
-  font-weight: bold;
-  font-size: 1.2em;
-  color: var(--noko-accent);
-}
-
-.connection {
-  font-size: 0.85em;
-  color: var(--noko-muted);
-}
-
-.connection.connected {
-  color: var(--noko-ok);
-}
-
-.connection.disconnected,
-.connection.unavailable {
-  color: var(--noko-error);
-}
-
-.sessions {
-  margin-bottom: 10px;
-}
-
-.empty {
-  color: var(--noko-muted);
-}
-
-button.session {
-  padding: 6px 10px;
-  margin-bottom: 4px;
+.card button,
+.card dropdown > button {
   background: var(--noko-surface);
-  border: 1px solid transparent;
+  color: var(--noko-fg);
+  border: 1px solid var(--noko-border);
   border-radius: 8px;
   box-shadow: none;
+  padding: 4px 10px;
 }
 
-button.session:hover {
+.card button:hover,
+.card dropdown > button:hover {
   background: var(--noko-surface-hover);
 }
 
-button.session.selected {
-  border-color: var(--noko-accent);
-}
-
-.session-status {
-  font-size: 0.85em;
+.usage {
+  font-size: 0.8em;
   color: var(--noko-muted);
-}
-
-.status-running .session-status,
-.status-starting .session-status {
-  color: var(--noko-warn);
-}
-
-.status-idle .session-status {
-  color: var(--noko-ok);
-}
-
-.status-error .session-status {
-  color: var(--noko-error);
 }
 
 .transcript-scroll {
@@ -99,11 +109,11 @@ button.session.selected {
 }
 
 .transcript {
-  padding: 10px;
+  padding: 8px;
 }
 
 .message {
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-radius: 8px;
 }
 
@@ -112,9 +122,23 @@ button.session.selected {
   border-left: 3px solid var(--noko-accent);
 }
 
+.message.tool {
+  padding: 0 8px;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: var(--noko-muted);
+}
+
 .message.streaming {
   color: var(--noko-muted);
 }
+
+.activity {
+  font-size: 0.85em;
+  color: var(--noko-accent);
+}
+
+/* --- Saisie --------------------------------------------------------------- */
 
 .composer entry {
   background: var(--noko-surface);
@@ -128,21 +152,6 @@ button.session.selected {
   border-color: var(--noko-accent);
 }
 
-.composer button,
-.header button.new {
-  background: var(--noko-surface);
-  color: var(--noko-fg);
-  border: 1px solid var(--noko-border);
-  border-radius: 8px;
-  box-shadow: none;
-  padding: 4px 10px;
-}
-
-.composer button:hover,
-.header button.new:hover {
-  background: var(--noko-surface-hover);
-}
-
 .composer button.suggested {
   border-color: var(--noko-accent);
   color: var(--noko-accent);
@@ -154,8 +163,10 @@ button.session.selected {
 
 .notice {
   color: var(--noko-error);
-  font-size: 0.9em;
+  font-size: 0.85em;
 }
+
+/* --- Autorisations -------------------------------------------------------- */
 
 .permission {
   padding: 10px;
@@ -198,15 +209,6 @@ button.session.selected {
   color: var(--noko-ok);
 }
 
-.permission button {
-  background: var(--noko-surface-hover);
-  color: var(--noko-fg);
-  border: 1px solid var(--noko-border);
-  border-radius: 8px;
-  box-shadow: none;
-  padding: 4px 12px;
-}
-
 .permission button.allow {
   border-color: var(--noko-ok);
   color: var(--noko-ok);
@@ -219,36 +221,4 @@ button.session.selected {
 
 .permission button:disabled {
   opacity: 0.4;
-}
-
-.session-permission {
-  font-size: 0.8em;
-  color: var(--noko-warn);
-}
-
-expander.folder {
-  margin-bottom: 4px;
-}
-
-.folder-name {
-  font-size: 0.9em;
-  color: var(--noko-muted);
-}
-
-.folder-sessions {
-  margin-top: 4px;
-  margin-left: 12px;
-}
-
-.location {
-  font-size: 0.85em;
-  color: var(--noko-accent);
-}
-
-.composer dropdown > button {
-  background: var(--noko-surface);
-  color: var(--noko-fg);
-  border: 1px solid var(--noko-border);
-  border-radius: 8px;
-  box-shadow: none;
 }

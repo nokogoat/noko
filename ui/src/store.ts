@@ -30,6 +30,8 @@ export const [transcripts, setTranscripts] = createState<ReadonlyMap<string, Tra
 export const [lastError, setLastError] = createState<ErrorCode | null>(null);
 /** Demandes d'autorisation en attente, dans l'ordre d'arrivée. */
 export const [permissions, setPermissions] = createState<readonly PermissionRequest[]>([]);
+/** Carte ouverte (sinon : pastille). */
+export const [expanded, setExpanded] = createState(false);
 /** Formulaire de nouvelle session ouvert. */
 export const [composing, setComposing] = createState(false);
 
@@ -77,6 +79,8 @@ export function applyMessage(msg: ServerMessage): void {
     case "permission.request": {
       const others = permissions.peek().filter((p) => p.requestId !== msg.request.requestId);
       setPermissions([...others, msg.request]);
+      // Une demande ne doit pas passer inaperçue : la carte s'ouvre (sans prendre le clavier).
+      setExpanded(true);
       return;
     }
     case "permission.resolved":
@@ -103,6 +107,12 @@ export function applyMessage(msg: ServerMessage): void {
       return;
     case "message.delta":
       updateTranscript(msg.sessionId, (t) => ({ ...t, streaming: t.streaming + msg.text }));
+      return;
+    case "message.tool":
+      updateTranscript(msg.sessionId, (t) => ({
+        ...t,
+        entries: [...t.entries, { role: "tool", text: msg.text }],
+      }));
       return;
     case "message.complete":
       updateTranscript(msg.sessionId, (t) => ({

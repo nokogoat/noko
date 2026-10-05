@@ -22,12 +22,15 @@ export function claimKeyboardOnClick(entry: Gtk.Widget): void {
   entry.add_controller(click);
 }
 
+/** Rend le clavier immédiatement. */
+export function releaseKeyboard(win: Gtk.Window): void {
+  win.set_focus(null);
+  setMode(win, LayerShell.KeyboardMode.NONE);
+}
+
 /** Rend le clavier quand la fenêtre perd le focus ou sur Échap. */
 export function releaseKeyboardWhenDone(win: Gtk.Window): void {
-  const release = () => {
-    win.set_focus(null);
-    setMode(win, LayerShell.KeyboardMode.NONE);
-  };
+  const release = () => releaseKeyboard(win);
   win.connect("notify::is-active", () => {
     if (!win.isActive) release();
   });

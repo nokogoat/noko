@@ -7,8 +7,8 @@ import Gtk from "gi://Gtk?version=4.0";
 import { createRoot } from "gnim";
 import { programArgs, programInvocationName } from "system";
 import { client, loadSelectedHistory } from "./actions.ts";
-import { Panel } from "./Panel.tsx";
-import { connection, selectedId, sessions } from "./store.ts";
+import { Widget } from "./Widget.tsx";
+import { connection, selectedId, sessions, setExpanded } from "./store.ts";
 import css from "./style.css";
 
 const APP_ID = "io.github.nokogoat.Noko";
@@ -29,14 +29,14 @@ const app = new Gtk.Application({
 let started = false;
 
 app.connect("activate", () => {
-  // Instance unique : une seconde activation remet simplement le panneau au premier plan.
+  // Instance unique : une seconde activation ouvre la carte.
   if (started) {
-    app.get_active_window()?.present();
+    setExpanded(true);
     return;
   }
   started = true;
   loadStyle();
-  createRoot(() => Panel({ app }));
+  createRoot(() => Widget({ app }));
   // Historique de la session affichée, dès qu'elle est connue (sélection, connexion,
   // identifiant Claude reçu).
   selectedId.subscribe(loadSelectedHistory);
