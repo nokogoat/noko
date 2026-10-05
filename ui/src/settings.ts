@@ -41,8 +41,15 @@ function loadTheme(name: string): { theme: Theme; error: string | null } {
   return { theme: fallback, error: `thème « ${name} » introuvable` };
 }
 
+/** Thème appliqué (et couleur d'accent de Hyprland, si suivie) : pour le texte mis en forme. */
+export const [activeTheme, setActiveTheme] = createState<{ theme: Theme; accent: string | null }>({
+  theme: parseTheme(nuit).value!,
+  accent: null,
+});
+
 function applyTheme(theme: Theme, accent: string | null): void {
   provider.load_from_string(themeCss(theme, accent));
+  setActiveTheme({ theme, accent });
 }
 
 function reload(): void {

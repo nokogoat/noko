@@ -2,11 +2,12 @@
 // Tout texte venant de Claude est affiché en texte brut (jamais de balisage Pango).
 
 import Gdk from "gi://Gdk?version=4.0";
+import GLib from "gi://GLib?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
 import LayerShell from "gi://Gtk4LayerShell?version=1.0";
 import Pango from "gi://Pango?version=1.0";
 import cairo from "cairo";
-import { createComputed, createMemo, createState, For } from "gnim";
+import { type Accessor, createComputed, createMemo, createState, For } from "gnim";
 import type { FileDiff, SessionInfo } from "../../shared/protocol.ts";
 import { acceptImageDrops } from "./attachments.ts";
 import { Composer } from "./Composer.tsx";
@@ -15,6 +16,7 @@ import { labelFactory } from "./dropdown.ts";
 import { activityText, usageText, usageTooltip } from "./format.ts";
 import { type Strings, t } from "./i18n.ts";
 import { claimKeyboardOnClick, releaseKeyboard, releaseKeyboardWhenDone } from "./keyboard.ts";
+import { markdownView } from "./markdown-view.ts";
 import { shortenPath } from "./paths.ts";
 import { PermissionCard } from "./PermissionCard.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
@@ -186,6 +188,8 @@ function ToolDiff({ entry, diff }: { entry: Entry; diff: FileDiff }) {
 /** Message sélectionnable : clic (clavier pris pour Ctrl+C) ou clic droit → Copier. */
 function Message({ entry }: { entry: Entry }) {
   if (entry.diff !== undefined) return <ToolDiff entry={entry} diff={entry.diff} />;
+  // Réponse de Claude : mise en page de son Markdown (titres, listes, code…).
+  if (entry.role === "assistant") return <Gtk.Box class="message assistant">{markdownView(entry.text)}</Gtk.Box>;
   return (
     <Gtk.Label
       class={`message ${entry.role}`}
@@ -196,6 +200,40 @@ function Message({ entry }: { entry: Entry }) {
       wrapMode={Pango.WrapMode.WORD_CHAR}
       xalign={0}
       $={claimKeyboardOnClick}
+    />
+  );
+}
+
+/** Mise en page de la réponse en cours refaite au plus toutes les 120 ms (pas à chaque fragment). */
+const STREAM_RENDER_MS = 120;
+
+/** Réponse en cours de streaming, mise en page comme une réponse terminée. */
+function StreamingMessage({ text }: { text: Accessor<string> }) {
+  return (
+    <Gtk.Box
+      class="message assistant streaming"
+      visible={text((s) => s !== "")}
+      $={(box) => {
+        let source = 0;
+        let shown: Gtk.Widget | null = null;
+        const render = () => {
+          source = 0;
+          if (shown !== null) box.remove(shown);
+          const value = text.peek();
+          shown = value === "" ? null : markdownView(value);
+          if (shown !== null) box.append(shown);
+          return GLib.SOURCE_REMOVE;
+        };
+        text.subscribe(() => {
+          if (text.peek() === "") {
+            if (source !== 0) GLib.source_remove(source);
+            render();
+          } else if (source === 0) {
+            source = GLib.timeout_add(GLib.PRIORITY_DEFAULT, STREAM_RENDER_MS, render);
+          }
+        });
+        render();
+      }}
     />
   );
 }
@@ -224,15 +262,7 @@ function Conversation() {
     <Gtk.ScrolledWindow class="transcript-scroll" vexpand hscrollbarPolicy={Gtk.PolicyType.NEVER} $={stickToBottom}>
       <Gtk.Box class="transcript" orientation={Gtk.Orientation.VERTICAL} spacing={6} valign={Gtk.Align.START}>
         <For each={entries}>{(entry) => <Message entry={entry} />}</For>
-        <Gtk.Label
-          class="message assistant streaming"
-          label={streaming}
-          visible={streaming((s) => s !== "")}
-          useMarkup={false}
-          wrap
-          wrapMode={Pango.WrapMode.WORD_CHAR}
-          xalign={0}
-        />
+        <StreamingMessage text={streaming} />
       </Gtk.Box>
     </Gtk.ScrolledWindow>
   );

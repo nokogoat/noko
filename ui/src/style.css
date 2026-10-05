@@ -201,8 +201,76 @@ window.noko-catcher {
   color: var(--noko-muted);
 }
 
-.message.streaming {
+/* --- Réponses de Claude mises en page (markdown-view.ts) ------------------ */
+
+.message.assistant {
+  padding: 8px 10px;
+}
+
+.markdown label {
+  line-height: 1.45;
+}
+
+.md-h1,
+.md-h2,
+.md-h3 {
+  font-weight: bolder;
+  color: var(--noko-fg);
+}
+
+.md-h1 {
+  font-size: 1.25em;
+  margin-top: 4px;
+}
+
+.md-h2 {
+  font-size: 1.12em;
+  margin-top: 2px;
+}
+
+.md-marker {
+  color: var(--noko-accent);
+  min-width: 14px;
+}
+
+.md-code {
+  background: var(--noko-bg);
+  border: 1px solid var(--noko-border);
+  border-radius: var(--noko-radius-sm);
+  padding: 8px 10px;
+}
+
+.md-code-text {
+  font-family: monospace;
+  font-size: 0.9em;
+  line-height: 1.3;
+}
+
+.md-code-lang {
+  font-size: 0.75em;
   color: var(--noko-muted);
+}
+
+.md-quote {
+  color: var(--noko-muted);
+  border-left: 3px solid var(--noko-border);
+  padding-left: 10px;
+}
+
+.md-table {
+  border: 1px solid var(--noko-border);
+  border-radius: var(--noko-radius-sm);
+  padding: 6px 10px;
+}
+
+.md-th {
+  font-weight: bolder;
+  color: var(--noko-accent);
+}
+
+.md-rule {
+  margin: 4px 0;
+  background: var(--noko-border);
 }
 
 .activity {
