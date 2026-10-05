@@ -29,8 +29,9 @@ function backupDir(): string {
 }
 
 /**
- * Personne d'autre que l'utilisateur ne peut modifier ce chemin : propriétaire (ou root
- * pour les dossiers parents et l'exécutable node), pas d'écriture pour le groupe ni les autres.
+ * Personne d'autre que l'utilisateur (ou root) ne peut modifier ce chemin : propriétaire,
+ * pas d'écriture pour le groupe ni les autres. Root est accepté pour les dossiers parents et
+ * l'exécutable node, et partout pour une installation par paquet (/usr/lib/noko).
  */
 function checkWritableOnlyByUser(path: string, allowRoot: boolean): void {
   const st = statSync(path);
@@ -50,9 +51,11 @@ function checkScript(repo: string, script: string, node: string): void {
     join(repo, "daemon", "src", "runtime-dir.ts"),
     join(repo, "package.json"),
   ];
-  for (const file of files) checkWritableOnlyByUser(file, false);
+  // Paquet système : tout appartient à root (personne d'autre ne peut le modifier).
+  const system = statSync(repo).uid === 0;
+  for (const file of files) checkWritableOnlyByUser(file, system);
   for (const dir of ["hooks", "shared", "daemon", join("daemon", "src"), "node_modules", join("node_modules", "zod")]) {
-    checkWritableOnlyByUser(join(repo, dir), false);
+    checkWritableOnlyByUser(join(repo, dir), system);
   }
   // Dossiers parents du repo : l'utilisateur ou root.
   for (let dir = repo; ; dir = dirname(dir)) {
