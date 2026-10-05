@@ -11,6 +11,7 @@ import type {
 } from "../../shared/protocol.ts";
 import type { ConnectionState } from "./ipc.ts";
 import { config } from "./settings.ts";
+import { playSound } from "./sounds.ts";
 
 export type Entry = HistoryMessage;
 
@@ -86,12 +87,14 @@ export function applyMessage(msg: ServerMessage): void {
       setPermissions([...others, msg.request]);
       // Une demande ne doit pas passer inaperçue : la carte s'ouvre (sans prendre le clavier).
       if (config.peek().behavior.open_on_request) setExpanded(true);
+      playSound("permission");
       return;
     }
     case "question.request": {
       const others = questions.peek().filter((q) => q.requestId !== msg.request.requestId);
       setQuestions([...others, msg.request]);
       if (config.peek().behavior.open_on_request) setExpanded(true);
+      playSound("question");
       return;
     }
     case "question.resolved":
@@ -102,6 +105,8 @@ export function applyMessage(msg: ServerMessage): void {
       return;
     case "session.update": {
       const previous = sessions.peek();
+      const before = previous.find((s) => s.id === msg.session.id)?.status;
+      if ((before === "running" || before === "starting") && msg.session.status === "idle") playSound("done");
       const isNew = !previous.some((s) => s.id === msg.session.id);
       const list = [msg.session, ...previous.filter((s) => s.id !== msg.session.id)].sort(byActivity);
       setSessions(list);
