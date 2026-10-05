@@ -3,13 +3,13 @@
 // le texte en cours de frappe ni le focus quand l'état d'une session change.
 
 import Gio from "gi://Gio?version=2.0";
-import GLib from "gi://GLib?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
 import { createComputed, createState } from "gnim";
 import type { ErrorCode } from "../../shared/protocol.ts";
 import { createSession, isClosed, sendToSession, stopSession } from "./actions.ts";
 import { claimKeyboardOnClick } from "./keyboard.ts";
-import { composing, lastError, selectedId, sessions, setComposing } from "./store.ts";
+import { homeDir, shortenPath } from "./paths.ts";
+import { composing, folders, lastError, selectedId, sessions, setComposing } from "./store.ts";
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
   invalid_message: "Message refusé par le daemon.",
@@ -18,6 +18,7 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   invalid_cwd: "Dossier introuvable.",
   not_resumable: "Cette session ne peut pas être reprise.",
   history_unavailable: "Historique indisponible.",
+  unknown_request: "Demande d'autorisation expirée ou déjà traitée.",
   internal: "Erreur interne du daemon.",
 };
 
@@ -33,13 +34,40 @@ function report(error: string | null): boolean {
   return error === null;
 }
 
+/** Dossiers proposés : ceux des sessions (plus récents d'abord), plus le dossier personnel. */
+function folderChoices(extra: string | null): string[] {
+  const list = [...folders.peek()];
+  if (extra !== null && !list.includes(extra)) list.unshift(extra);
+  if (!list.includes(homeDir())) list.push(homeDir());
+  return list;
+}
+
 function NewSessionForm() {
-  let folder: Gtk.Entry;
   let name: Gtk.Entry;
   let prompt: Gtk.Entry;
+  let dropdown: Gtk.DropDown;
+  const model = new Gtk.StringList();
+  // Chemins complets, dans l'ordre des libellés (abrégés) du menu déroulant.
+  let paths: string[] = [];
+  let picked: string | null = null;
+
+  const selectedPath = (): string | null => paths[dropdown.get_selected()] ?? null;
+
+  /** Recharge la liste en gardant (ou en choisissant) un dossier. */
+  const refresh = (keep: string | null) => {
+    paths = folderChoices(picked);
+    model.splice(0, model.get_n_items(), paths.map(shortenPath));
+    const index = keep === null ? -1 : paths.indexOf(keep);
+    dropdown.set_selected(index === -1 ? 0 : index);
+  };
 
   const submit = () => {
-    if (report(createSession(folder.text, prompt.text, name.text))) {
+    const cwd = selectedPath();
+    if (cwd === null) {
+      report("Choisis un dossier.");
+      return;
+    }
+    if (report(createSession(cwd, prompt.text, name.text))) {
       prompt.text = "";
       name.text = "";
       setComposing(false);
@@ -48,12 +76,15 @@ function NewSessionForm() {
 
   const browse = () => {
     const dialog = new Gtk.FileDialog({ title: "Dossier de la session", modal: false });
-    const current = folder.text.trim();
-    if (current.startsWith("/")) dialog.set_initial_folder(Gio.File.new_for_path(current));
+    const current = selectedPath();
+    if (current !== null) dialog.set_initial_folder(Gio.File.new_for_path(current));
     dialog.select_folder(null, null, (_src, res) => {
       try {
         const path = dialog.select_folder_finish(res)?.get_path();
-        if (path) folder.text = path;
+        if (path) {
+          picked = path;
+          refresh(path);
+        }
       } catch {
         // dialogue annulé
       }
@@ -61,18 +92,33 @@ function NewSessionForm() {
   };
 
   return (
-    <Gtk.Box class="new-session" orientation={Gtk.Orientation.VERTICAL} spacing={6} visible={composing}>
+    <Gtk.Box
+      class="new-session"
+      orientation={Gtk.Orientation.VERTICAL}
+      spacing={6}
+      visible={composing}
+      $={() => {
+        // À l'ouverture : dossier de la session affichée, sinon le plus récent.
+        composing.subscribe(() => {
+          if (!composing.peek()) return;
+          const current = sessions.peek().find((s) => s.id === selectedId.peek());
+          refresh(current?.cwd ?? null);
+        });
+        folders.subscribe(() => refresh(selectedPath()));
+      }}
+    >
       <Gtk.Box spacing={6}>
-        <Gtk.Entry
+        <Gtk.DropDown
+          class="folder-choice"
           hexpand
-          placeholderText="Dossier"
-          text={GLib.get_home_dir()}
+          model={model}
+          tooltipText="Dossier de la session"
           $={(self) => {
-            folder = self;
-            claimKeyboardOnClick(self);
+            dropdown = self;
+            refresh(null);
           }}
         />
-        <Gtk.Button label="…" tooltipText="Choisir un dossier" onClicked={browse} />
+        <Gtk.Button label="…" tooltipText="Choisir un autre dossier" onClicked={browse} />
       </Gtk.Box>
       <Gtk.Entry
         placeholderText="Nom (facultatif)"

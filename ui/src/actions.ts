@@ -1,8 +1,8 @@
 // Commandes envoyées au daemon depuis l'UI.
 
-import GLib from "gi://GLib?version=2.0";
 import type { SessionInfo } from "../../shared/protocol.ts";
 import { DaemonClient } from "./ipc.ts";
+import { expandHome } from "./paths.ts";
 import {
   applyMessage,
   connection,
@@ -11,13 +11,18 @@ import {
   sessions,
   setConnection,
   setLastError,
+  setPermissions,
   transcriptOf,
 } from "./store.ts";
 
 export const client = new DaemonClient({
   onState: (state) => {
     setConnection(state);
-    if (state !== "connected") historyRequested.clear();
+    if (state !== "connected") {
+      historyRequested.clear();
+      // Demandes périmées : l'instantané reçu à la reconnexion fait foi.
+      setPermissions([]);
+    }
   },
   onMessage: applyMessage,
 });
@@ -29,14 +34,6 @@ const CLOSED = new Set<SessionInfo["status"]>(["stopped", "error"]);
 
 export function isClosed(session: SessionInfo): boolean {
   return CLOSED.has(session.status);
-}
-
-/** Développe `~` en dossier personnel : le daemon n'accepte que des chemins absolus. */
-export function expandHome(path: string): string {
-  const trimmed = path.trim();
-  if (trimmed === "~") return GLib.get_home_dir();
-  if (trimmed.startsWith("~/")) return GLib.build_filenamev([GLib.get_home_dir(), trimmed.slice(2)]);
-  return trimmed;
 }
 
 /** Renvoie un message d'erreur à afficher, ou null si la commande est partie. */
@@ -81,4 +78,8 @@ export function loadSelectedHistory(): void {
   if (t.loaded || t.entries.length > 0 || t.streaming !== "") return;
   historyRequested.add(id);
   client.send({ type: "session.history", sessionId: id });
+}
+
+export function answerPermission(requestId: string, decision: "allow" | "deny"): boolean {
+  return client.send({ type: "permission.answer", requestId, decision });
 }

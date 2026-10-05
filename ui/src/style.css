@@ -156,3 +156,99 @@ button.session.selected {
   color: var(--noko-error);
   font-size: 0.9em;
 }
+
+.permission {
+  padding: 10px;
+  background: var(--noko-surface);
+  border: 1px solid var(--noko-warn);
+  border-radius: 10px;
+}
+
+.permission-title {
+  font-weight: bold;
+}
+
+.permission-meta {
+  font-size: 0.85em;
+  color: var(--noko-muted);
+}
+
+.permission-warning {
+  font-size: 0.9em;
+  color: var(--noko-warn);
+}
+
+.field-name {
+  font-size: 0.8em;
+  color: var(--noko-muted);
+}
+
+.field-value {
+  font-family: monospace;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--noko-surface-hover);
+}
+
+.field-old_string .field-value {
+  color: var(--noko-error);
+}
+
+.field-new_string .field-value {
+  color: var(--noko-ok);
+}
+
+.permission button {
+  background: var(--noko-surface-hover);
+  color: var(--noko-fg);
+  border: 1px solid var(--noko-border);
+  border-radius: 8px;
+  box-shadow: none;
+  padding: 4px 12px;
+}
+
+.permission button.allow {
+  border-color: var(--noko-ok);
+  color: var(--noko-ok);
+}
+
+.permission button.deny {
+  border-color: var(--noko-error);
+  color: var(--noko-error);
+}
+
+.permission button:disabled {
+  opacity: 0.4;
+}
+
+.session-permission {
+  font-size: 0.8em;
+  color: var(--noko-warn);
+}
+
+expander.folder {
+  margin-bottom: 4px;
+}
+
+.folder-name {
+  font-size: 0.9em;
+  color: var(--noko-muted);
+}
+
+.folder-sessions {
+  margin-top: 4px;
+  margin-left: 12px;
+}
+
+.location {
+  font-size: 0.85em;
+  color: var(--noko-accent);
+}
+
+.composer dropdown > button {
+  background: var(--noko-surface);
+  color: var(--noko-fg);
+  border: 1px solid var(--noko-border);
+  border-radius: 8px;
+  box-shadow: none;
+}

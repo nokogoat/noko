@@ -1,7 +1,13 @@
 // État affiché par l'UI. Aucune logique métier : on reflète ce que dit le daemon.
 
-import { createState } from "gnim";
-import type { ErrorCode, HistoryMessage, ServerMessage, SessionInfo } from "../../shared/protocol.ts";
+import { createMemo, createState } from "gnim";
+import type {
+  ErrorCode,
+  HistoryMessage,
+  PermissionRequest,
+  ServerMessage,
+  SessionInfo,
+} from "../../shared/protocol.ts";
 import type { ConnectionState } from "./ipc.ts";
 
 export type Entry = HistoryMessage;
@@ -22,8 +28,16 @@ export const [sessions, setSessions] = createState<readonly SessionInfo[]>([]);
 export const [selectedId, setSelectedId] = createState<string | null>(null);
 export const [transcripts, setTranscripts] = createState<ReadonlyMap<string, Transcript>>(new Map());
 export const [lastError, setLastError] = createState<ErrorCode | null>(null);
+/** Demandes d'autorisation en attente, dans l'ordre d'arrivée. */
+export const [permissions, setPermissions] = createState<readonly PermissionRequest[]>([]);
 /** Formulaire de nouvelle session ouvert. */
 export const [composing, setComposing] = createState(false);
+
+/** Dossiers des sessions, du plus récemment actif au plus ancien, sans doublon. */
+export const folders = createMemo(
+  () => [...new Set(sessions().map((s) => s.cwd))],
+  { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) },
+);
 
 // Après une création depuis cette UI, la prochaine nouvelle session est sélectionnée.
 let selectNextNew = false;
@@ -56,9 +70,18 @@ export function applyMessage(msg: ServerMessage): void {
     case "state.snapshot": {
       const list = [...msg.sessions].sort(byActivity);
       setSessions(list);
+      setPermissions(msg.permissions);
       ensureSelection(list);
       return;
     }
+    case "permission.request": {
+      const others = permissions.peek().filter((p) => p.requestId !== msg.request.requestId);
+      setPermissions([...others, msg.request]);
+      return;
+    }
+    case "permission.resolved":
+      setPermissions(permissions.peek().filter((p) => p.requestId !== msg.requestId));
+      return;
     case "session.update": {
       const previous = sessions.peek();
       const isNew = !previous.some((s) => s.id === msg.session.id);

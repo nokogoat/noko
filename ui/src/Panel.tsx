@@ -10,9 +10,13 @@ import type { SessionInfo, SessionStatus } from "../../shared/protocol.ts";
 import { Composer } from "./Composer.tsx";
 import type { ConnectionState } from "./ipc.ts";
 import { releaseKeyboardWhenDone } from "./keyboard.ts";
+import { shortenPath } from "./paths.ts";
+import { PermissionCard } from "./PermissionCard.tsx";
 import {
   composing,
   connection,
+  folders,
+  permissions,
   selectedId,
   sessions,
   setComposing,
@@ -79,9 +83,54 @@ function SessionRow({ session }: { session: SessionInfo }) {
           xalign={0}
           ellipsize={Pango.EllipsizeMode.END}
         />
+        <Gtk.Label
+          class="session-permission"
+          label="autorisation ?"
+          visible={permissions((list) => list.some((p) => p.sessionId === session.id))}
+        />
         <Gtk.Label class="session-status" label={STATUS_LABEL[session.status]} useMarkup={false} />
       </Gtk.Box>
     </Gtk.Button>
+  );
+}
+
+/** Un dossier de projet, dépliable, avec ses sessions. */
+function FolderGroup({ cwd }: { cwd: string }) {
+  const list = sessions((all) => all.filter((s) => s.cwd === cwd));
+  const label = list((l) => `${shortenPath(cwd)}  (${l.length})`);
+  return (
+    <Gtk.Expander class="folder" expanded tooltipText={cwd}>
+      <Gtk.Label
+        $type="label"
+        class="folder-name"
+        label={label}
+        useMarkup={false}
+        ellipsize={Pango.EllipsizeMode.START}
+        xalign={0}
+      />
+      <Gtk.Box class="folder-sessions" orientation={Gtk.Orientation.VERTICAL}>
+        <For each={list}>{(session) => <SessionRow session={session} />}</For>
+      </Gtk.Box>
+    </Gtk.Expander>
+  );
+}
+
+/** Où se trouve la session choisie : chemin complet du dossier et nom. */
+function Location() {
+  const text = createComputed(() => {
+    const id = selectedId();
+    const session = sessions().find((s) => s.id === id);
+    return session === undefined ? "" : `${shortenPath(session.cwd)}  ›  ${session.name}`;
+  });
+  return (
+    <Gtk.Label
+      class="location"
+      label={text}
+      visible={text((t) => t !== "")}
+      useMarkup={false}
+      ellipsize={Pango.EllipsizeMode.START}
+      xalign={0}
+    />
   );
 }
 
@@ -165,10 +214,20 @@ export function Panel({ app }: { app: Gtk.Application }) {
             <With value={sessions((list) => list.length === 0)}>
               {(empty) => (empty ? <Gtk.Label class="empty" label="Aucune session" xalign={0} /> : null)}
             </With>
-            <For each={sessions}>{(session) => <SessionRow session={session} />}</For>
+            <For each={folders}>{(cwd) => <FolderGroup cwd={cwd} />}</For>
           </Gtk.Box>
         </Gtk.ScrolledWindow>
 
+        <Gtk.Box
+          class="permissions"
+          orientation={Gtk.Orientation.VERTICAL}
+          spacing={8}
+          visible={permissions((list) => list.length > 0)}
+        >
+          <For each={permissions}>{(request) => <PermissionCard request={request} />}</For>
+        </Gtk.Box>
+
+        <Location />
         <Conversation />
         <Composer />
       </Gtk.Box>
