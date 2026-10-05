@@ -33,6 +33,9 @@ function setAnchors(win: Gtk.Window, c: Corner, x: number, y: number): void {
   LayerShell.set_margin(win, Edge.BOTTOM, c.vertical === "bottom" ? y : 0);
   LayerShell.set_margin(win, Edge.LEFT, c.horizontal === "left" ? x : 0);
   LayerShell.set_margin(win, Edge.RIGHT, c.horizontal === "right" ? x : 0);
+  // L'état layer-shell n'est envoyé au compositeur qu'avec un nouveau dessin : sans lui,
+  // au repos (aucune animation en cours), la fenêtre ne bougerait pas.
+  win.queue_draw();
 }
 
 export function applyPlacement(win: Gtk.Window): void {
