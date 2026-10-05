@@ -112,7 +112,10 @@ function sessionLabel(s: SessionInfo): string {
   return `${shortenPath(s.cwd)}  ›  ${s.name}  ·  ${STATUS_LABEL[s.status]}${where}`;
 }
 
-/** Menu déroulant des sessions. */
+/**
+ * Menu déroulant des sessions, avec un champ de recherche (dossier, nom ou état, n'importe
+ * où dans le libellé). Le clic sur le menu prend le clavier, pour pouvoir y taper.
+ */
 function SessionPicker() {
   const model = new Gtk.StringList();
   let ids: string[] = [];
@@ -129,8 +132,12 @@ function SessionPicker() {
       model={model}
       factory={labelFactory(Pango.EllipsizeMode.MIDDLE)}
       listFactory={labelFactory(Pango.EllipsizeMode.NONE)}
-      tooltipText="Session affichée"
+      enableSearch
+      expression={Gtk.PropertyExpression.new(Gtk.StringObject.$gtype, null, "string")}
+      searchMatchMode={Gtk.StringFilterMatchMode.SUBSTRING}
+      tooltipText="Session affichée (le menu permet de chercher)"
       $={(self) => {
+        claimKeyboardOnClick(self);
         const sync = () => {
           syncing = true;
           const list = labels.peek();
