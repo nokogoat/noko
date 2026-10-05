@@ -4,9 +4,11 @@
 import {
   query,
   type CanUseTool,
+  type Query,
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { settingSourcesFor } from "./trust.ts";
 
 export interface SessionEvents {
   /** Identifiant de session Claude Code, reçu à l'initialisation. */
@@ -26,6 +28,8 @@ export interface RunningSession {
 export interface StartOptions {
   cwd: string;
   prompt: string;
+  /** Identifiant de session Claude Code à reprendre. */
+  resume?: string;
   events: SessionEvents;
 }
 
@@ -92,29 +96,39 @@ function assistantText(msg: Extract<SDKMessage, { type: "assistant" }>): string 
   return parts.join("");
 }
 
-export const startClaudeSession: StartSession = ({ cwd, prompt, events }) => {
+export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }) => {
   const input = new InputQueue();
   const abortController = new AbortController();
   input.push(prompt);
 
-  const q = query({
-    prompt: input,
-    options: {
-      cwd,
-      abortController,
-      // Toujours explicite : le défaut peut être `auto`. Voir CLAUDE.md, section Sécurité.
-      permissionMode: "default",
-      canUseTool: denyAll,
-      // Aucun réglage lu sur le disque : un `.claude/settings.json` de projet pourrait
-      // apporter des hooks ou des règles `allow`. Voir CLAUDE.md, section Sécurité.
-      settingSources: [],
-      systemPrompt: { type: "preset", preset: "claude_code" },
-      includePartialMessages: true,
-    },
-  });
+  const run = async (): Promise<Query | null> => {
+    // Réglages du projet seulement si le dossier est de confiance dans Claude Code.
+    // Voir CLAUDE.md, section Sécurité.
+    const settingSources = await settingSourcesFor(cwd);
+    if (abortController.signal.aborted) return null;
+    return query({
+      prompt: input,
+      options: {
+        cwd,
+        abortController,
+        // Toujours explicite : le défaut peut être `auto`. Voir CLAUDE.md, section Sécurité.
+        permissionMode: "default",
+        canUseTool: denyAll,
+        settingSources,
+        systemPrompt: { type: "preset", preset: "claude_code" },
+        includePartialMessages: true,
+        ...(resume !== undefined ? { resume } : {}),
+      },
+    });
+  };
 
   void (async () => {
     try {
+      const q = await run();
+      if (q === null) {
+        events.onExit();
+        return;
+      }
       for await (const msg of q) {
         switch (msg.type) {
           case "system":
