@@ -101,3 +101,58 @@ button.session.selected {
 .transcript {
   padding: 10px;
 }
+
+.message {
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.message.user {
+  background: var(--noko-surface-hover);
+  border-left: 3px solid var(--noko-accent);
+}
+
+.message.streaming {
+  color: var(--noko-muted);
+}
+
+.composer entry {
+  background: var(--noko-surface);
+  color: var(--noko-fg);
+  border: 1px solid var(--noko-border);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+.composer entry:focus-within {
+  border-color: var(--noko-accent);
+}
+
+.composer button,
+.header button.new {
+  background: var(--noko-surface);
+  color: var(--noko-fg);
+  border: 1px solid var(--noko-border);
+  border-radius: 8px;
+  box-shadow: none;
+  padding: 4px 10px;
+}
+
+.composer button:hover,
+.header button.new:hover {
+  background: var(--noko-surface-hover);
+}
+
+.composer button.suggested {
+  border-color: var(--noko-accent);
+  color: var(--noko-accent);
+}
+
+.composer button.stop {
+  color: var(--noko-error);
+}
+
+.notice {
+  color: var(--noko-error);
+  font-size: 0.9em;
+}

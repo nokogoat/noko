@@ -6,9 +6,9 @@ import Gio from "gi://Gio?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
 import { createRoot } from "gnim";
 import { programArgs, programInvocationName } from "system";
-import { DaemonClient } from "./ipc.ts";
+import { client, loadSelectedHistory } from "./actions.ts";
 import { Panel } from "./Panel.tsx";
-import { applyMessage, setConnection } from "./store.ts";
+import { connection, selectedId, sessions } from "./store.ts";
 import css from "./style.css";
 
 const APP_ID = "io.github.nokogoat.Noko";
@@ -26,7 +26,6 @@ const app = new Gtk.Application({
   flags: Gio.ApplicationFlags.DEFAULT_FLAGS,
 });
 
-const client = new DaemonClient({ onState: setConnection, onMessage: applyMessage });
 let started = false;
 
 app.connect("activate", () => {
@@ -38,6 +37,11 @@ app.connect("activate", () => {
   started = true;
   loadStyle();
   createRoot(() => Panel({ app }));
+  // Historique de la session affichée, dès qu'elle est connue (sélection, connexion,
+  // identifiant Claude reçu).
+  selectedId.subscribe(loadSelectedHistory);
+  sessions.subscribe(loadSelectedHistory);
+  connection.subscribe(loadSelectedHistory);
   client.start();
 });
 
