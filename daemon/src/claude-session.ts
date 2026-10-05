@@ -10,6 +10,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   MANAGED_ENV,
+  type FileDiff,
   type ImageAttachment,
   type Question,
   type QuestionAnswers,
@@ -32,7 +33,7 @@ export interface SessionEvents {
   /** Ce que fait Claude en ce moment ; null une fois le tour terminé. */
   onActivity(activity: SessionActivity | null): void;
   /** Appel d'outil, résumé pour la conversation. */
-  onToolUse(summary: string): void;
+  onToolUse(summary: string, diff?: FileDiff): void;
   onUsage(usage: SessionUsage): void;
   /** Questions à choix (AskUserQuestion) : réponses de l'utilisateur, ou null. */
   askQuestions(questions: Question[], signal: AbortSignal): Promise<QuestionAnswers | null>;
@@ -237,7 +238,7 @@ export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }
           case "assistant":
             if (msg.parent_tool_use_id !== null) break;
             for (const entry of assistantEntries(msg.message)) {
-              if (entry.role === "tool") events.onToolUse(entry.text);
+              if (entry.role === "tool") events.onToolUse(entry.text, entry.diff);
               else events.onAssistantText(entry.text);
             }
             usage.contextTokens = contextSize(msg.message.usage);

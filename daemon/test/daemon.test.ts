@@ -462,6 +462,28 @@ test("permissions : entrée trop grosse pour être affichée → refus immédiat
   c.sock.destroy();
 });
 
+test("permissions : avant/après d'une modification, en plus de l'entrée exacte", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  await c.next("session.update");
+  const file = join(dir, "notes.txt");
+  writeFileSync(file, "a\nb\n");
+  const input = { file_path: file, old_string: "b", new_string: "c" };
+  void fakes[0]!.events.requestPermission(
+    { toolName: "Edit", input, title: null, reason: null, blockedPath: null },
+    new AbortController().signal,
+  );
+  const { request } = await c.next("permission.request");
+  assert.deepEqual(request.input, input);
+  assert.deepEqual(request.diff, {
+    path: file,
+    kind: "edit",
+    truncated: false,
+    hunks: [{ oldStart: 1, newStart: 1, lines: [" a", "-b", "+c"] }],
+  });
+  c.sock.destroy();
+});
+
 test("activité, outils et consommation sont diffusés sans être enregistrés", async () => {
   const c = await Client.connect(path);
   c.send({ type: "session.create", cwd: dir, prompt: "x" });

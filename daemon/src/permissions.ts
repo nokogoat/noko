@@ -4,7 +4,7 @@
 // de repli (refus pour une autorisation, aucune réponse pour une question).
 
 import { randomUUID } from "node:crypto";
-import type { PermissionOutcome, PermissionRequest } from "../../shared/protocol.ts";
+import type { FileDiff, PermissionOutcome, PermissionRequest } from "../../shared/protocol.ts";
 import { PermissionRequest as PermissionRequestSchema } from "../../shared/protocol.ts";
 
 /** Champs communs à toute demande en attente. */
@@ -123,6 +123,8 @@ export interface PermissionAsk {
   title: string | null;
   reason: string | null;
   blockedPath: string | null;
+  /** Avant/après (Edit, Write), calculé par le daemon. */
+  diff?: FileDiff | null;
 }
 
 export class PermissionBroker {
@@ -155,6 +157,7 @@ export class PermissionBroker {
         title: ask.title,
         reason: ask.reason,
         blockedPath: ask.blockedPath,
+        diff: ask.diff ?? null,
         expiresAt,
       });
       return parsed.success ? parsed.data : null;

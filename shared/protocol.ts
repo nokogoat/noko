@@ -33,7 +33,7 @@ export const TERMINAL_PERMISSION_TIMEOUT_MS = 60 * 1000;
 
 const SessionId = z.uuid();
 
-const AbsolutePath = z
+export const AbsolutePath = z
   .string()
   .min(1)
   .max(4096)
@@ -112,10 +112,38 @@ export const SessionInfo = z.strictObject({
 });
 export type SessionInfo = z.infer<typeof SessionInfo>;
 
+/** Nombre maximal de lignes d'un diff envoyé à l'UI (au-delà : `truncated`). */
+export const MAX_DIFF_LINES = 4000;
+
+/** Bloc d'un diff : lignes préfixées par « » (inchangée), « + » (ajoutée) ou « - » (retirée). */
+export const DiffHunk = z.strictObject({
+  /** Numéro (à partir de 1) de la première ligne du bloc avant et après ; null si inconnu. */
+  oldStart: z.number().int().positive().nullable(),
+  newStart: z.number().int().positive().nullable(),
+  lines: z.array(z.string().regex(/^[ +-]/)).min(1).max(MAX_DIFF_LINES),
+});
+export type DiffHunk = z.infer<typeof DiffHunk>;
+
+/** Modifications d'un fichier par un outil (Edit, Write), calculées par le daemon. */
+export const FileDiff = z.strictObject({
+  path: AbsolutePath,
+  /**
+   * edit : remplacement d'un passage ; create : nouveau fichier ; overwrite : fichier
+   * existant réécrit ; write : contenu écrit, contenu précédent inconnu.
+   */
+  kind: z.enum(["edit", "create", "overwrite", "write"]),
+  hunks: z.array(DiffHunk).max(MAX_DIFF_LINES),
+  /** Diff incomplet (trop gros) : seule l'entrée exacte de l'outil fait foi. */
+  truncated: z.boolean(),
+});
+export type FileDiff = z.infer<typeof FileDiff>;
+
 export const HistoryMessage = z.strictObject({
   /** `tool` : résumé d'un appel d'outil (nom et argument principal). */
   role: z.enum(["user", "assistant", "tool"]),
   text: z.string(),
+  /** Modifications de fichier d'un appel d'outil (Edit, Write). */
+  diff: FileDiff.optional(),
 });
 export type HistoryMessage = z.infer<typeof HistoryMessage>;
 
@@ -132,6 +160,8 @@ export const PermissionRequest = z.strictObject({
   reason: z.string().max(4096).nullable(),
   /** Chemin hors des dossiers autorisés qui a déclenché la demande. */
   blockedPath: z.string().max(4096).nullable(),
+  /** Avant/après pour Edit et Write : un complément de l'entrée exacte, pas un remplacement. */
+  diff: FileDiff.nullable(),
   /** Au-delà (millisecondes depuis l'époque Unix), la demande est refusée. */
   expiresAt: z.number().int().nonnegative(),
 });
@@ -327,6 +357,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
     type: z.literal("message.tool"),
     sessionId: SessionId,
     text: z.string(),
+    diff: FileDiff.optional(),
   }),
   /** Historique d'une session : les derniers messages, du plus ancien au plus récent. */
   z.strictObject({

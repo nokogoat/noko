@@ -1,9 +1,11 @@
 // Historique d'une session, lu dans les transcripts de Claude Code via le SDK.
-// Seul le texte est gardé (ni outils, ni résultats d'outils, ni sous-agents).
+// Texte et résumé des appels d'outils (avec avant/après pour Edit et Write) ; ni résultats
+// d'outils, ni sous-agents.
 
 import { getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { HistoryMessage } from "../../shared/protocol.ts";
+import { conversationDiff } from "./file-diff.ts";
 import { toolSummary } from "./tool-summary.ts";
 
 export type LoadHistory = (claudeSessionId: string, cwd: string) => Promise<HistoryMessage[]>;
@@ -56,7 +58,8 @@ export function assistantEntries(message: unknown): HistoryMessage[] {
     const tool = ToolUseBlock.safeParse(block);
     if (tool.success) {
       flush();
-      entries.push({ role: "tool", text: toolSummary(tool.data.name, tool.data.input) });
+      const diff = conversationDiff(tool.data.name, tool.data.input);
+      entries.push({ role: "tool", text: toolSummary(tool.data.name, tool.data.input), ...(diff ? { diff } : {}) });
     }
   }
   flush();
@@ -69,8 +72,8 @@ export function trimHistory(messages: HistoryMessage[]): HistoryMessage[] {
   let budget = HISTORY_MAX_BYTES;
   for (let i = messages.length - 1; i >= 0 && kept.length < HISTORY_MAX_MESSAGES; i--) {
     const msg = messages[i]!;
-    // Taille une fois sérialisé (échappements compris), plus une marge pour l'enveloppe.
-    const size = Buffer.byteLength(JSON.stringify(msg.text)) + 32;
+    // Taille une fois sérialisé (échappements et diff compris), plus une marge pour l'enveloppe.
+    const size = Buffer.byteLength(JSON.stringify(msg)) + 32;
     if (size > budget) break;
     budget -= size;
     kept.push(msg);

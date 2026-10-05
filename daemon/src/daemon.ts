@@ -6,12 +6,14 @@ import { statSync } from "node:fs";
 import { basename } from "node:path";
 import {
   type ClientMessage,
+  type FileDiff,
   type HookDecision,
   type SessionInfo,
   type SessionStatus,
   TERMINAL_PERMISSION_TIMEOUT_MS,
 } from "../../shared/protocol.ts";
 import type { RunningSession, StartSession, UserMessage } from "./claude-session.ts";
+import { permissionDiff, readText, type ReadText } from "./file-diff.ts";
 import type { LoadHistory } from "./history.ts";
 import { IpcServer, type Connection, type IpcLimits } from "./ipc-server.ts";
 import { errorFields, log } from "./log.ts";
@@ -30,6 +32,8 @@ export interface DaemonDeps {
   loadHistory: LoadHistory;
   store: SessionPersistence;
   terminal: TerminalDeps;
+  /** Lecture des fichiers pour l'avant/après des demandes d'autorisation (readText par défaut). */
+  readText?: ReadText;
 }
 
 type HookEventMessage = Extract<ClientMessage, { type: "hook.event" }>;
@@ -345,9 +349,9 @@ export class Daemon {
           record.info.activity = activity;
           this.publish(record);
         },
-        onToolUse: (summary) => {
+        onToolUse: (summary, diff) => {
           if (!live()) return;
-          this.ipc.broadcast({ type: "message.tool", sessionId: id, text: summary });
+          this.ipc.broadcast({ type: "message.tool", sessionId: id, text: summary, ...(diff ? { diff } : {}) });
         },
         onUsage: (usage) => {
           if (!live()) return;
@@ -395,13 +399,24 @@ export class Daemon {
     });
   }
 
-  private requestPermission(sessionId: string, ask: PermissionAsk, signal: AbortSignal): Promise<Decision> {
+  private async requestPermission(sessionId: string, ask: PermissionAsk, signal: AbortSignal): Promise<Decision> {
     if (inputSize(ask.input) > MAX_PERMISSION_INPUT_BYTES) {
       // L'UI doit montrer l'entrée exacte : si elle ne peut pas, on refuse.
       log("permission.too_large", { session: sessionId, tool: ask.toolName });
-      return Promise.resolve("deny");
+      return "deny";
     }
-    return this.permissions.request(sessionId, ask, signal);
+    const diff = await this.previewDiff(ask);
+    return this.permissions.request(sessionId, { ...ask, diff }, signal);
+  }
+
+  /** Avant/après d'une demande (Edit, Write) ; null si l'outil n'est pas concerné ou en cas d'erreur. */
+  private async previewDiff(ask: PermissionAsk): Promise<FileDiff | null> {
+    try {
+      return await permissionDiff(ask.toolName, ask.input, this.deps.readText ?? readText);
+    } catch (err) {
+      log("permission.diff_failed", { tool: ask.toolName, ...errorFields(err) });
+      return null;
+    }
   }
 
   // --- Sessions lancées dans un terminal (hooks) ---------------------------
@@ -488,7 +503,8 @@ export class Daemon {
     record.info.activity = { kind: "permission" };
     this.publish(record);
     try {
-      const ask = { toolName: msg.toolName, input: msg.input, title: null, reason: null, blockedPath: null };
+      const ask: PermissionAsk = { toolName: msg.toolName, input: msg.input, title: null, reason: null, blockedPath: null };
+      ask.diff = await this.previewDiff(ask);
       const decision = await this.permissions.requestAnswer(
         record.info.id,
         ask,
