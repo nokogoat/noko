@@ -83,6 +83,12 @@ export function stopSession(session: SessionInfo): void {
   client.send({ type: "session.stop", sessionId: session.id });
 }
 
+/** Retire la session de la liste (l'historique de Claude Code est conservé). */
+export function deleteSession(session: SessionInfo): void {
+  setLastError(null);
+  client.send({ type: "session.delete", sessionId: session.id });
+}
+
 /** Session en cours dans un terminal : elle se pilote depuis le terminal. */
 export function isLiveTerminal(session: SessionInfo): boolean {
   return session.source === "terminal" && !isClosed(session);

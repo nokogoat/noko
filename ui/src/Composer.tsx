@@ -3,11 +3,12 @@
 // le texte en cours de frappe ni le focus quand l'état d'une session change.
 
 import Gio from "gi://Gio?version=2.0";
+import GLib from "gi://GLib?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
 import Pango from "gi://Pango?version=1.0";
 import { createComputed, createState, For } from "gnim";
 import type { ErrorCode } from "../../shared/protocol.ts";
-import { createSession, focusSession, isClosed, isLiveTerminal, sendToSession, stopSession } from "./actions.ts";
+import { createSession, deleteSession, focusSession, isClosed, isLiveTerminal, sendToSession, stopSession } from "./actions.ts";
 import {
   attachmentError,
   attachments,
@@ -160,6 +161,55 @@ function NewSessionForm() {
   );
 }
 
+/** Délai pour confirmer la suppression par un second clic. */
+const CONFIRM_DELAY_MS = 3000;
+
+/**
+ * Retire une session terminée de la liste. Deux clics : le premier arme le bouton,
+ * le second (dans les 3 s, sur la même session) supprime.
+ */
+function DeleteButton() {
+  const [armedId, setArmedId] = createState<string | null>(null);
+  let source = 0;
+
+  const disarm = () => {
+    if (source !== 0) GLib.source_remove(source);
+    source = 0;
+    setArmedId(null);
+  };
+
+  const canDelete = selectedSession((s) => s !== null && isClosed(s));
+  const armed = createComputed(() => armedId() !== null && armedId() === selectedId());
+
+  return (
+    <Gtk.Button
+      class={armed((a) => (a ? "delete armed" : "delete"))}
+      label={armed((a) => (a ? "Confirmer ?" : "Supprimer"))}
+      tooltipText="Retirer de la liste (l'historique de Claude Code est conservé)"
+      visible={canDelete}
+      $={() => {
+        selectedId.subscribe(disarm);
+      }}
+      onClicked={() => {
+        const session = selectedSession.peek();
+        if (session === null) return;
+        if (armedId.peek() !== session.id) {
+          disarm();
+          setArmedId(session.id);
+          source = GLib.timeout_add(GLib.PRIORITY_DEFAULT, CONFIRM_DELAY_MS, () => {
+            source = 0;
+            setArmedId(null);
+            return GLib.SOURCE_REMOVE;
+          });
+          return;
+        }
+        disarm();
+        deleteSession(session);
+      }}
+    />
+  );
+}
+
 function ReplyBox() {
   let entry: Gtk.Entry;
 
@@ -216,6 +266,7 @@ function ReplyBox() {
           if (session !== null) stopSession(session);
         }}
       />
+      <DeleteButton />
     </Gtk.Box>
   );
 }

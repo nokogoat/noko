@@ -118,6 +118,15 @@ export function applyMessage(msg: ServerMessage): void {
       }
       return;
     }
+    case "session.removed": {
+      const list = sessions.peek().filter((s) => s.id !== msg.sessionId);
+      setSessions(list);
+      const next = new Map(transcripts.peek());
+      next.delete(msg.sessionId);
+      setTranscripts(next);
+      ensureSelection(list);
+      return;
+    }
     case "message.user": {
       const n = msg.imageCount;
       const text = n === 0 ? msg.text : `${msg.text}\n[${n} image${n > 1 ? "s" : ""} jointe${n > 1 ? "s" : ""}]`;

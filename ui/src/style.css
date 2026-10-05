@@ -199,6 +199,15 @@ window.noko-catcher {
   color: var(--noko-error);
 }
 
+.composer button.delete {
+  color: var(--noko-muted);
+}
+
+.composer button.delete.armed {
+  border-color: var(--noko-error);
+  color: var(--noko-error);
+}
+
 .composer button.terminal {
   color: var(--noko-accent);
 }
