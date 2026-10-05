@@ -1,0 +1,35 @@
+#!/bin/sh
+# Lanceur de noko (installation par paquet, fichiers dans /usr/lib/noko).
+#   noko                 démarre le daemon (service systemd utilisateur) puis le panneau
+#   noko toggle|open|close   pilote le panneau déjà lancé (raccourci clavier)
+#   noko hooks [--uninstall] installe (ou retire) les hooks des sessions lancées au terminal
+# Aucun argument n'est interprété par le shell : chaque branche lance une commande fixe.
+set -eu
+
+LIB=/usr/lib/noko
+APP_ID=io.github.nokogoat.Noko
+
+case "${1:-}" in
+  toggle | open | close)
+    exec gapplication action "$APP_ID" "$1"
+    ;;
+  hooks)
+    shift
+    exec /usr/bin/node "$LIB/hooks/install.ts" "$@"
+    ;;
+  "")
+    ;;
+  *)
+    echo "usage : noko [toggle | open | close | hooks [--uninstall]]" >&2
+    exit 2
+    ;;
+esac
+
+# Le daemon lance les outils de Claude (Bash…) : il lui faut le PATH de la session, pas
+# celui, minimal, du gestionnaire systemd. Seul PATH est transmis.
+systemctl --user import-environment PATH
+systemctl --user start noko.service || echo "noko : daemon non démarré (journalctl --user -u noko)" >&2
+
+# gtk4-layer-shell doit être chargée avant libwayland-client : avec GJS, seul un
+# préchargement le garantit.
+LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so exec /usr/bin/gjs -m "$LIB/ui/dist/noko.js"

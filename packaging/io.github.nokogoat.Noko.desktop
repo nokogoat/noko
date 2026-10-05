@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=noko
+Comment=Run, follow and approve Claude agent sessions from a small panel
+Comment[fr]=Lancer, suivre et autoriser des sessions Claude depuis un petit panneau
+Exec=noko
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;Utility;
+Keywords=claude;agent;ai;hyprland;
+StartupNotify=false

@@ -1,0 +1,57 @@
+# Maintainer: nokogoat <234281059+nokogoat@users.noreply.github.com>
+#
+# Les dépendances npm (dont le SDK Agent de Claude, sous les conditions commerciales
+# d'Anthropic) sont téléchargées depuis le registre npm à la construction, d'après le
+# package-lock.json du projet ; ce paquet ne redistribue rien lui-même.
+
+pkgname=noko
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Hyprland panel to run, follow and approve Claude agent sessions"
+arch=('x86_64' 'aarch64')
+url="https://github.com/nokogoat/noko"
+license=('MIT')
+depends=('nodejs>=22.18' 'gjs' 'gtk4' 'gtk4-layer-shell' 'glib2')
+makedepends=('npm')
+optdepends=(
+  'hyprland: drag the pill with the cursor, focus terminal windows'
+  'pipewire-audio: sounds (pw-play)'
+)
+install=noko.install
+# Le binaire de Claude livré par le SDK est un exécutable autonome : le « strip » le casse.
+options=('!strip' '!debug')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  # Le .npmrc du projet s'applique (aucun script d'installation, quarantaine de 7 jours).
+  npm ci --ignore-scripts --no-audit --no-fund --cache "$srcdir/npm-cache"
+  node ui/run.ts --build-only
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  node --test 'daemon/test/**/*.test.ts'
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  # Seules les dépendances d'exécution restent (le panneau est déjà assemblé).
+  npm prune --omit=dev --ignore-scripts --no-audit --no-fund --cache "$srcdir/npm-cache"
+  find node_modules -type d -empty -delete
+
+  local lib="$pkgdir/usr/lib/$pkgname"
+  install -d "$lib/daemon" "$lib/ui/dist"
+  cp -r --no-preserve=ownership daemon/src "$lib/daemon/"
+  cp -r --no-preserve=ownership shared hooks node_modules package.json "$lib/"
+  install -m644 ui/dist/noko.js "$lib/ui/dist/noko.js"
+  # Aucun fichier modifiable par le groupe ou les autres (vérifié par l'installeur des hooks).
+  chmod -R go-w "$lib"
+
+  install -Dm755 packaging/noko "$pkgdir/usr/bin/noko"
+  install -Dm644 packaging/noko.service "$pkgdir/usr/lib/systemd/user/noko.service"
+  install -Dm644 packaging/io.github.nokogoat.Noko.desktop \
+    "$pkgdir/usr/share/applications/io.github.nokogoat.Noko.desktop"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

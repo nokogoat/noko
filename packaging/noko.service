@@ -1,0 +1,16 @@
+# Daemon de noko (service systemd utilisateur). Démarré par la commande `noko` ;
+# `systemctl --user enable noko` pour le lancer dès l'ouverture de session.
+[Unit]
+Description=noko daemon (Claude sessions and approvals)
+Documentation=https://github.com/nokogoat/noko
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /usr/lib/noko/daemon/src/main.ts
+Restart=on-failure
+RestartSec=2
+# Pas de durcissement qui changerait ce que Claude peut faire : ses outils doivent se
+# comporter comme dans un terminal (le contrôle passe par les autorisations de noko).
+
+[Install]
+WantedBy=default.target

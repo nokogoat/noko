@@ -1,0 +1,14 @@
+post_install() {
+  cat <<'EOF'
+==> noko est installé. Pour commencer :
+      1. Connecte Claude Code une fois, si ce n'est pas déjà fait : claude
+      2. Lance noko : noko   (ou depuis ton lanceur d'applications)
+    Au démarrage de Hyprland :     exec-once = noko
+    Raccourci pour ouvrir/fermer : bind = SUPER, N, exec, noko toggle
+    Sessions lancées au terminal (facultatif) : noko hooks
+EOF
+}
+
+post_upgrade() {
+  echo "==> noko : relance le daemon pour appliquer la mise à jour : systemctl --user restart noko"
+}
