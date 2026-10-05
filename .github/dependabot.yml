@@ -1,0 +1,17 @@
+# Mises à jour des dépendances npm et des actions GitHub, une fois par semaine, et jamais
+# vers une version publiée il y a moins de 7 jours (même quarantaine que .npmrc).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

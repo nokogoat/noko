@@ -79,7 +79,7 @@ export function findWindowPid(
 const Clients = z.array(z.object({ pid: z.number().int() })).max(10_000);
 
 async function hyprctl(args: string[]): Promise<string> {
-  // Tableau d'arguments, jamais de shell (CLAUDE.md, section Processus externes).
+  // Tableau d'arguments, jamais de shell (SECURITY.md, section External processes).
   const { stdout } = await run("hyprctl", args, {
     timeout: HYPRCTL_TIMEOUT_MS,
     maxBuffer: HYPRCTL_MAX_BUFFER,

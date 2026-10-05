@@ -1,6 +1,6 @@
 // Installe (ou retire, avec --uninstall) les hooks de noko dans ~/.claude/settings.json.
 //
-// Règles (CLAUDE.md, section Sécurité) : chemin absolu vers le script ; script et dossiers
+// Règles (SECURITY.md, section Terminal hooks) : chemin absolu vers le script ; script et dossiers
 // appartenant à l'utilisateur et modifiables par lui seul ; sauvegarde de settings.json en
 // 0600, hors du repo ; fusion sans écraser les hooks existants ; diff affiché avant
 // d'écrire. Le contenu de settings.json n'est jamais affiché, seules les lignes modifiées.

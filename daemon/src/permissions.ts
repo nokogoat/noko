@@ -1,5 +1,5 @@
 // Demandes en attente d'une réponse de l'UI (autorisations d'outils, questions).
-// Règles (CLAUDE.md, section Sécurité) : identifiant aléatoire à usage unique ;
+// Règles (SECURITY.md, section Permissions) : identifiant aléatoire à usage unique ;
 // identifiant inconnu, expiré ou déjà utilisé → refus ; pas de réponse à temps → valeur
 // de repli (refus pour une autorisation, aucune réponse pour une question).
 

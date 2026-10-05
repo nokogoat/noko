@@ -1,4 +1,4 @@
-// Carte d'une demande d'autorisation. Règles (CLAUDE.md, section Sécurité) :
+// Carte d'une demande d'autorisation. Règles (SECURITY.md, section Permissions) :
 // l'entrée exacte de l'outil est affichée champ par champ, jamais un résumé ;
 // pas de bouton « tout autoriser » ; texte brut uniquement. Pour Edit et Write, l'avant/après
 // s'y ajoute ; les champs de contenu restent à un clic (ouverts si le diff est incomplet).

@@ -1,7 +1,7 @@
 // Hook Claude Code pour les sessions lancées dans un terminal : transmet l'événement au
 // daemon, et pour une demande d'autorisation, attend la réponse donnée dans le panneau.
 //
-// Échoue ouvert (CLAUDE.md, section Sécurité) : au moindre problème (daemon absent,
+// Échoue ouvert (SECURITY.md, section Terminal hooks) : au moindre problème (daemon absent,
 // socket introuvable, entrée inattendue, délai dépassé), il sort avec le code 0 sans
 // rien écrire, et Claude Code demande dans le terminal comme d'habitude. Il n'écrit
 // « allow » que si l'utilisateur a autorisé cette requête précise dans le panneau.

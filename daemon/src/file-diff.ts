@@ -1,7 +1,7 @@
 // Avant/après des outils qui modifient un fichier (Edit, Write).
 // Dans la conversation : d'après l'entrée seule. Pour une demande d'autorisation : d'après
 // le fichier actuel, lu avec des bornes strictes. Ce n'est qu'un complément : l'UI garde
-// l'entrée exacte de l'outil à portée (CLAUDE.md, section Sécurité).
+// l'entrée exacte de l'outil à portée (SECURITY.md, section Permissions).
 
 import { constants } from "node:fs";
 import { open, stat } from "node:fs/promises";

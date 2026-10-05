@@ -1,5 +1,5 @@
 // Sons : un chemin de fichier lu par un lecteur fixe (pw-play, sinon paplay).
-// La config ne peut contenir aucune commande (CLAUDE.md, section Sécurité).
+// La config ne peut contenir aucune commande (SECURITY.md, section External processes).
 
 import Gio from "gi://Gio?version=2.0";
 import GLib from "gi://GLib?version=2.0";

@@ -129,7 +129,7 @@ const DENIED_BY_USER = "Refusé par l'utilisateur dans noko.";
 export function permissionHandler(events: SessionEvents): CanUseTool {
   return async (toolName, input, options) => {
     // Questions à choix : les réponses de l'utilisateur sont ajoutées dans `answers`, seul
-    // champ modifié de l'entrée (exception documentée dans CLAUDE.md).
+    // champ modifié de l'entrée (seule exception, voir SECURITY.md).
     if (toolName === "AskUserQuestion") {
       const questions = parseQuestions(input);
       if (questions !== null) {
@@ -179,7 +179,7 @@ export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }
 
   const run = async (): Promise<Query | null> => {
     // Réglages du projet seulement si le dossier est de confiance dans Claude Code.
-    // Voir CLAUDE.md, section Sécurité.
+    // Voir SECURITY.md, section Permissions.
     const settingSources = await settingSourcesFor(cwd);
     if (abortController.signal.aborted) return null;
     return query({
@@ -187,7 +187,7 @@ export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }
       options: {
         cwd,
         abortController,
-        // Toujours explicite : le défaut peut être `auto`. Voir CLAUDE.md, section Sécurité.
+        // Toujours explicite : le défaut peut être `auto`. Voir SECURITY.md, section Permissions.
         permissionMode: "default",
         canUseTool: permissionHandler(events),
         settingSources,
