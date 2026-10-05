@@ -50,11 +50,11 @@ window.noko-catcher {
   transition: border-color 200ms var(--noko-ease);
 }
 
-.shell.permission {
+.shell.state-permission {
   border-color: var(--noko-warn);
 }
 
-.shell.question {
+.shell.state-question {
   border-color: var(--noko-accent);
 }
 
@@ -111,25 +111,25 @@ window.noko-catcher {
   transition: color 200ms var(--noko-ease);
 }
 
-.pill.ready .dot {
+.pill.state-ready .dot {
   color: var(--noko-ok);
 }
 
-.pill.busy .dot {
+.pill.state-busy .dot {
   color: var(--noko-accent);
 }
 
-.pill.permission .dot,
-.pill.permission .state {
+.pill.state-permission .dot,
+.pill.state-permission .state {
   color: var(--noko-warn);
 }
 
-.pill.question .dot,
-.pill.question .state {
+.pill.state-question .dot,
+.pill.state-question .state {
   color: var(--noko-accent);
 }
 
-.pill.offline .dot {
+.pill.state-offline .dot {
   color: var(--noko-error);
 }
 

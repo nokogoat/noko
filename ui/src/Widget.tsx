@@ -368,7 +368,10 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
 }
 
 interface PillState {
-  /** Classe CSS (couleur du point et de la bordure). */
+  /**
+   * État, posé en classe CSS « state-<cls> » (couleur du point et de la bordure). Le préfixe
+   * évite la collision avec les classes des composants (la carte d'autorisation « permission »).
+   */
   cls: string;
   /** Session concernée (son nom : le projet, par défaut), sinon « noko ». */
   title: string;
@@ -407,7 +410,7 @@ const pillState = createComputed((): PillState => {
 function Pill({ onCreated }: { onCreated: (pill: Gtk.Box) => void }) {
   return (
     <Gtk.Box
-      class={pillState((s) => `pill ${s.cls}`)}
+      class={pillState((s) => `pill state-${s.cls}`)}
       spacing={8}
       tooltipText={createComputed(() => t().pill.tooltip(pillState().cwd))}
       $={(self) => {
@@ -623,7 +626,7 @@ export function Widget({ app }: { app: Gtk.Application }) {
         <Gtk.Box class="sizer" widthRequest={windowWidth} heightRequest={windowHeight} />
         <Gtk.Overlay
           $type="overlay"
-          class={pillState((s) => `shell ${s.cls}`)}
+          class={pillState((s) => `shell state-${s.cls}`)}
           halign={halign}
           valign={valign}
           overflow={Gtk.Overflow.HIDDEN}
