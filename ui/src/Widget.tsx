@@ -76,8 +76,8 @@ function setupLayerShell(win: Gtk.Window): void {
 
 /**
  * Couche transparente plein écran, sous la carte, tant que l'utilisateur s'en sert :
- * un clic dessus referme la carte (comme un menu). La carte passe alors au calque
- * OVERLAY pour rester au-dessus de cette couche.
+ * un clic dessus referme la carte (comme un menu). Ouverte, la carte est au calque
+ * OVERLAY : elle reste au-dessus de cette couche (calque TOP).
  */
 function setupClickCatcher(app: Gtk.Application, widget: Gtk.Window): void {
   const catcher = new Gtk.Window({ application: app, title: "noko", cssClasses: ["noko-catcher"] });
@@ -98,12 +98,17 @@ function setupClickCatcher(app: Gtk.Application, widget: Gtk.Window): void {
     if (active.peek()) {
       const monitor = LayerShell.get_monitor(widget);
       if (monitor !== null) LayerShell.set_monitor(catcher, monitor);
-      LayerShell.set_layer(widget, LayerShell.Layer.OVERLAY);
       catcher.present();
     } else {
       catcher.hide();
-      LayerShell.set_layer(widget, LayerShell.Layer.TOP);
     }
+  });
+
+  // Carte ouverte : calque OVERLAY, au-dessus des fenêtres en plein écran (sinon une carte
+  // ouverte seule pour une autorisation resterait dessous, invisible et inaccessible).
+  // Pastille seule : calque TOP, sous un jeu ou une vidéo en plein écran.
+  expanded.subscribe(() => {
+    LayerShell.set_layer(widget, expanded.peek() ? LayerShell.Layer.OVERLAY : LayerShell.Layer.TOP);
   });
 }
 
@@ -188,8 +193,16 @@ function ToolDiff({ entry, diff }: { entry: Entry; diff: FileDiff }) {
 /** Message sélectionnable : clic (clavier pris pour Ctrl+C) ou clic droit → Copier. */
 function Message({ entry }: { entry: Entry }) {
   if (entry.diff !== undefined) return <ToolDiff entry={entry} diff={entry.diff} />;
-  // Réponse de Claude : mise en page de son Markdown (titres, listes, code…).
-  if (entry.role === "assistant") return <Gtk.Box class="message assistant">{markdownView(entry.text)}</Gtk.Box>;
+  // Réponse de Claude : mise en page de son Markdown (titres, listes, code…). Boîte
+  // verticale : horizontale, GTK calculerait sa hauteur minimale pour la largeur la plus
+  // étroite du texte (des milliers de pixels vides sous les longues réponses).
+  if (entry.role === "assistant") {
+    return (
+      <Gtk.Box class="message assistant" orientation={Gtk.Orientation.VERTICAL}>
+        {markdownView(entry.text)}
+      </Gtk.Box>
+    );
+  }
   return (
     <Gtk.Label
       class={`message ${entry.role}`}
@@ -212,6 +225,7 @@ function StreamingMessage({ text }: { text: Accessor<string> }) {
   return (
     <Gtk.Box
       class="message assistant streaming"
+      orientation={Gtk.Orientation.VERTICAL}
       visible={text((s) => s !== "")}
       $={(box) => {
         let source = 0;
