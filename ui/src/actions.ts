@@ -1,6 +1,6 @@
 // Commandes envoyées au daemon depuis l'UI.
 
-import type { SessionInfo } from "../../shared/protocol.ts";
+import type { ImageAttachment, SessionInfo } from "../../shared/protocol.ts";
 import { DaemonClient } from "./ipc.ts";
 import { expandHome } from "./paths.ts";
 import {
@@ -37,7 +37,12 @@ export function isClosed(session: SessionInfo): boolean {
 }
 
 /** Renvoie un message d'erreur à afficher, ou null si la commande est partie. */
-export function createSession(cwd: string, prompt: string, name: string): string | null {
+export function createSession(
+  cwd: string,
+  prompt: string,
+  name: string,
+  images: readonly ImageAttachment[] = [],
+): string | null {
   const path = expandHome(cwd);
   if (!path.startsWith("/")) return "Le dossier doit être un chemin absolu.";
   if (prompt.trim() === "") return "Écris un premier message.";
@@ -48,17 +53,27 @@ export function createSession(cwd: string, prompt: string, name: string): string
     type: "session.create",
     cwd: path,
     prompt,
+    ...(images.length > 0 ? { images: [...images] } : {}),
     ...(trimmedName !== "" ? { name: trimmedName } : {}),
   });
   return sent ? null : "Message refusé (daemon absent ou champ invalide).";
 }
 
 /** Envoie un message à la session : simple envoi si elle tourne, reprise sinon. */
-export function sendToSession(session: SessionInfo, text: string): string | null {
-  if (text.trim() === "") return null;
+export function sendToSession(
+  session: SessionInfo,
+  text: string,
+  images: readonly ImageAttachment[] = [],
+): string | null {
+  if (text.trim() === "") return images.length > 0 ? "Ajoute un message avec les images." : null;
   setLastError(null);
   const type = isClosed(session) ? "session.resume" : "session.send";
-  const sent = client.send({ type, sessionId: session.id, text });
+  const sent = client.send({
+    type,
+    sessionId: session.id,
+    text,
+    ...(images.length > 0 ? { images: [...images] } : {}),
+  });
   return sent ? null : "Message refusé (daemon absent ou champ invalide).";
 }
 

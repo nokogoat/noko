@@ -28,8 +28,8 @@ export function releaseKeyboard(win: Gtk.Window): void {
   setMode(win, LayerShell.KeyboardMode.NONE);
 }
 
-/** Rend le clavier quand la fenêtre perd le focus ou sur Échap. */
-export function releaseKeyboardWhenDone(win: Gtk.Window): void {
+/** Rend le clavier quand la fenêtre perd le focus ou sur Échap (puis appelle `onEscape`). */
+export function releaseKeyboardWhenDone(win: Gtk.Window, onEscape: () => void = () => {}): void {
   const release = () => releaseKeyboard(win);
   win.connect("notify::is-active", () => {
     if (!win.isActive) release();
@@ -38,6 +38,7 @@ export function releaseKeyboardWhenDone(win: Gtk.Window): void {
   keys.connect("key-pressed", (_ctrl, keyval) => {
     if (keyval !== Gdk.KEY_Escape) return false;
     release();
+    onEscape();
     return true;
   });
   win.add_controller(keys);

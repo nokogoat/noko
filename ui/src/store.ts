@@ -99,12 +99,15 @@ export function applyMessage(msg: ServerMessage): void {
       }
       return;
     }
-    case "message.user":
+    case "message.user": {
+      const n = msg.imageCount;
+      const text = n === 0 ? msg.text : `${msg.text}\n[${n} image${n > 1 ? "s" : ""} jointe${n > 1 ? "s" : ""}]`;
       updateTranscript(msg.sessionId, (t) => ({
         ...t,
-        entries: [...t.entries, { role: "user", text: msg.text }],
+        entries: [...t.entries, { role: "user", text }],
       }));
       return;
+    }
     case "message.delta":
       updateTranscript(msg.sessionId, (t) => ({ ...t, streaming: t.streaming + msg.text }));
       return;

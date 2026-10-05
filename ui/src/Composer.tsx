@@ -4,9 +4,16 @@
 
 import Gio from "gi://Gio?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
-import { createComputed, createState } from "gnim";
+import { createComputed, createState, For } from "gnim";
 import type { ErrorCode } from "../../shared/protocol.ts";
 import { createSession, isClosed, sendToSession, stopSession } from "./actions.ts";
+import {
+  attachmentError,
+  attachments,
+  pasteImagesInto,
+  removeAttachment,
+  takeAttachments,
+} from "./attachments.ts";
 import { claimKeyboardOnClick } from "./keyboard.ts";
 import { homeDir, shortenPath } from "./paths.ts";
 import { composing, folders, lastError, selectedId, sessions, setComposing } from "./store.ts";
@@ -67,7 +74,8 @@ function NewSessionForm() {
       report("Choisis un dossier.");
       return;
     }
-    if (report(createSession(cwd, prompt.text, name.text))) {
+    if (report(createSession(cwd, prompt.text, name.text, attachments.peek().map((a) => a.image)))) {
+      takeAttachments();
       prompt.text = "";
       name.text = "";
       setComposing(false);
@@ -129,11 +137,12 @@ function NewSessionForm() {
         }}
       />
       <Gtk.Entry
-        placeholderText="Premier message"
+        placeholderText="Premier message (Ctrl+V pour une image)"
         onActivate={submit}
         $={(self) => {
           prompt = self;
           claimKeyboardOnClick(self);
+          pasteImagesInto(self);
         }}
       />
       <Gtk.Box spacing={6} halign={Gtk.Align.END}>
@@ -150,7 +159,10 @@ function ReplyBox() {
   const submit = () => {
     const session = selectedSession.peek();
     if (session === null) return;
-    if (report(sendToSession(session, entry.text))) entry.text = "";
+    if (report(sendToSession(session, entry.text, attachments.peek().map((a) => a.image)))) {
+      takeAttachments();
+      entry.text = "";
+    }
   };
 
   const placeholder = selectedSession((s) => {
@@ -171,6 +183,7 @@ function ReplyBox() {
         $={(self) => {
           entry = self;
           claimKeyboardOnClick(self);
+          pasteImagesInto(self);
         }}
       />
       <Gtk.Button
@@ -186,9 +199,33 @@ function ReplyBox() {
   );
 }
 
+/** Miniatures des images jointes, chacune avec un bouton pour la retirer. */
+function AttachmentStrip() {
+  return (
+    <Gtk.Box class="attachments" spacing={6} visible={attachments((list) => list.length > 0)}>
+      <For each={attachments}>
+        {(a) => (
+          <Gtk.Overlay class="attachment">
+            <Gtk.Picture paintable={a.thumbnail} contentFit={Gtk.ContentFit.COVER} widthRequest={56} heightRequest={56} />
+            <Gtk.Button
+              $type="overlay"
+              class="remove"
+              label="×"
+              tooltipText="Retirer l'image"
+              halign={Gtk.Align.END}
+              valign={Gtk.Align.START}
+              onClicked={() => removeAttachment(a.id)}
+            />
+          </Gtk.Overlay>
+        )}
+      </For>
+    </Gtk.Box>
+  );
+}
+
 export function Composer() {
   const notice = createComputed(() => {
-    const local = formError();
+    const local = formError() ?? attachmentError();
     if (local !== null) return local;
     const code = lastError();
     return code === null ? "" : ERROR_TEXT[code];
@@ -204,6 +241,7 @@ export function Composer() {
         wrap
         xalign={0}
       />
+      <AttachmentStrip />
       <NewSessionForm />
       <ReplyBox />
     </Gtk.Box>

@@ -19,9 +19,13 @@ window.noko-widget {
   font-size: 0.95em;
 }
 
+window.noko-catcher {
+  background: transparent;
+}
+
 /* --- Pastille ------------------------------------------------------------- */
 
-button.pill {
+.pill {
   padding: 6px 14px;
   background: var(--noko-bg);
   border: 1px solid var(--noko-border);
@@ -30,42 +34,42 @@ button.pill {
   color: var(--noko-fg);
 }
 
-button.pill:hover {
+.pill:hover {
   border-color: var(--noko-accent);
 }
 
-button.pill .name {
+.pill .name {
   font-weight: bold;
   color: var(--noko-accent);
 }
 
-button.pill .state {
+.pill .state {
   color: var(--noko-muted);
 }
 
-button.pill .dot {
+.pill .dot {
   font-size: 0.8em;
   color: var(--noko-muted);
 }
 
-button.pill.ready .dot {
+.pill.ready .dot {
   color: var(--noko-ok);
 }
 
-button.pill.busy .dot {
+.pill.busy .dot {
   color: var(--noko-accent);
 }
 
-button.pill.permission {
+.pill.permission {
   border-color: var(--noko-warn);
 }
 
-button.pill.permission .dot,
-button.pill.permission .state {
+.pill.permission .dot,
+.pill.permission .state {
   color: var(--noko-warn);
 }
 
-button.pill.offline .dot {
+.pill.offline .dot {
   color: var(--noko-error);
 }
 
@@ -221,4 +225,19 @@ button.pill.offline .dot {
 
 .permission button:disabled {
   opacity: 0.4;
+}
+
+/* --- Images jointes ------------------------------------------------------- */
+
+.attachment picture {
+  border-radius: 6px;
+}
+
+.attachment button.remove {
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: 2px;
+  border-radius: 999px;
+  font-size: 0.8em;
 }

@@ -68,7 +68,13 @@ export class DaemonClient {
       return false;
     }
     if (this.conn === null) return false;
-    this.queue.push(this.encoder.encode(JSON.stringify(checked.data) + "\n"));
+    const line = this.encoder.encode(JSON.stringify(checked.data) + "\n");
+    // Le daemon fermerait la connexion : on refuse ici.
+    if (line.length - 1 > MAX_LINE_BYTES) {
+      console.warn(`noko : message sortant trop gros (${msg.type})`);
+      return false;
+    }
+    this.queue.push(line);
     this.flush();
     return true;
   }
