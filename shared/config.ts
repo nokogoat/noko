@@ -32,8 +32,8 @@ export const ConfigSchema = z.object({
     corner: Corner.catch("bottom-left"),
     margin_x: int(0, 4000, 6),
     margin_y: int(0, 4000, 6),
-    width: int(280, 1200, 380),
-    height: int(240, 1600, 480),
+    width: int(280, 1200, 600),
+    height: int(240, 1600, 380),
   }),
   theme: section({
     /** Thème intégré ou fichier ~/.config/noko/themes/<name>.toml. */

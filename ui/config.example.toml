@@ -7,8 +7,8 @@
 corner = "bottom-left"
 margin_x = 6        # distance au bord gauche ou droit, en pixels
 margin_y = 6        # distance au bord haut ou bas, en pixels
-width = 380         # largeur de la carte ouverte (280 à 1200)
-height = 480        # hauteur de la carte ouverte (240 à 1600)
+width = 600         # largeur de la carte ouverte (280 à 1200)
+height = 380        # hauteur de la carte ouverte (240 à 1600)
 
 [theme]
 # Thèmes intégrés : "nuit", "aube", "foret", "braise".
