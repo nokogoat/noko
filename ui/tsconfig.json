@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    // Pas de types Node : ce code tourne dans GJS.
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "gnim/gtk4",
+    // Déclarations générées par tsconfig.gnim.json (voir ce fichier).
+    "paths": {
+      "gnim": ["./.types/gnim/index.d.ts"],
+      "gnim/gtk4/jsx-runtime": ["./.types/gnim/gtk4/jsx-runtime.d.ts"]
+    }
+  },
+  "include": ["src", "../shared"]
+}

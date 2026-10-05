@@ -1,0 +1,24 @@
+// Génère les déclarations (.d.ts) de gnim, publié en sources TypeScript.
+// Sans elles, tsc vérifierait l'implémentation de gnim avec nos règles strictes et
+// une version de @girs différente de la sienne. --noCheck : émission sans vérification.
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": [],
+    "strict": true,
+    "skipLibCheck": true,
+    "noCheck": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "../node_modules/gnim/dist",
+    "outDir": ".types/gnim",
+    "jsx": "react-jsx",
+    "jsxImportSource": "gnim/gtk4"
+  },
+  // node_modules est exclu par défaut : on le désactive pour cibler les sources de gnim.
+  "include": ["src/env.d.ts", "../node_modules/gnim/dist/**/*.ts"],
+  "exclude": []
+}

@@ -16,5 +16,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["daemon/src", "daemon/test", "shared"]
+  "include": ["daemon/src", "daemon/test", "shared", "ui/run.ts"]
 }

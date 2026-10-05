@@ -1,0 +1,103 @@
+/* Thème par défaut. Toutes les couleurs passent par les variables ci-dessous :
+   aucun code couleur ailleurs. */
+
+window.noko-panel {
+  --noko-bg: rgba(24, 24, 32, 0.92);
+  --noko-surface: rgba(255, 255, 255, 0.05);
+  --noko-surface-hover: rgba(255, 255, 255, 0.09);
+  --noko-fg: #e6e6ef;
+  --noko-muted: #8b8ba3;
+  --noko-accent: #c4a7e7;
+  --noko-ok: #9ccfd8;
+  --noko-warn: #f6c177;
+  --noko-error: #eb6f92;
+  --noko-border: rgba(255, 255, 255, 0.08);
+  --noko-radius: 14px;
+
+  background: transparent;
+  color: var(--noko-fg);
+}
+
+.panel {
+  margin: 8px;
+  padding: 12px;
+  background: var(--noko-bg);
+  border: 1px solid var(--noko-border);
+  border-radius: var(--noko-radius);
+}
+
+.header {
+  margin-bottom: 10px;
+}
+
+.title {
+  font-weight: bold;
+  font-size: 1.2em;
+  color: var(--noko-accent);
+}
+
+.connection {
+  font-size: 0.85em;
+  color: var(--noko-muted);
+}
+
+.connection.connected {
+  color: var(--noko-ok);
+}
+
+.connection.disconnected,
+.connection.unavailable {
+  color: var(--noko-error);
+}
+
+.sessions {
+  margin-bottom: 10px;
+}
+
+.empty {
+  color: var(--noko-muted);
+}
+
+button.session {
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background: var(--noko-surface);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+button.session:hover {
+  background: var(--noko-surface-hover);
+}
+
+button.session.selected {
+  border-color: var(--noko-accent);
+}
+
+.session-status {
+  font-size: 0.85em;
+  color: var(--noko-muted);
+}
+
+.status-running .session-status,
+.status-starting .session-status {
+  color: var(--noko-warn);
+}
+
+.status-idle .session-status {
+  color: var(--noko-ok);
+}
+
+.status-error .session-status {
+  color: var(--noko-error);
+}
+
+.transcript-scroll {
+  background: var(--noko-surface);
+  border-radius: 8px;
+}
+
+.transcript {
+  padding: 10px;
+}
