@@ -1,4 +1,6 @@
 // Position du widget : accroché à un coin de l'écran, déplaçable à la souris.
+// La fenêtre garde toujours la même taille (redimensionner une surface layer-shell fait
+// sauter son contenu d'une image) : seuls ses marges et son coin d'accroche changent.
 // Le coin d'accroche décide du sens d'ouverture de la carte (vers le centre de l'écran).
 
 import Gdk from "gi://Gdk?version=4.0";
@@ -12,12 +14,12 @@ export interface Corner {
   horizontal: "left" | "right";
 }
 
-const DEFAULT_MARGIN = 12;
+const DEFAULT_MARGIN = 6;
 /** En deçà (en pixels), un glissement est un simple clic. */
 const DRAG_THRESHOLD = 4;
 
 export const [corner, setCorner] = createState<Corner>({ vertical: "bottom", horizontal: "left" });
-/** Distance aux deux bords d'accroche. */
+/** Distance de la fenêtre aux deux bords d'accroche. */
 let margins = { x: DEFAULT_MARGIN, y: DEFAULT_MARGIN };
 
 const { Edge } = LayerShell;
@@ -50,30 +52,41 @@ const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min)
 
 /**
  * Rend la fenêtre de `handle` déplaçable en le glissant. Un clic sans glissement appelle
- * `onClick`. Au lâcher, la fenêtre s'accroche au coin le plus proche.
+ * `onClick`. Pendant le glissement, la fenêtre s'accroche en direct au coin de l'écran le
+ * plus proche de `handle`, qui reste ainsi dans le coin correspondant de la fenêtre.
  */
 export function makeDraggable(handle: Gtk.Widget, onClick: () => void): void {
   const drag = new Gtk.GestureDrag();
-  // Fenêtre résolue au moment du glissement : `handle` est créé avant d'y être inséré.
   let win: Gtk.Window | null = null;
   let geom: Gdk.Rectangle | null = null;
-  let start = { left: 0, top: 0 };
-  let grab = { x: 0, y: 0 };
-  let pos = { left: 0, top: 0 };
+  /** Taille de la fenêtre et de la poignée, et retrait de la poignée dans son coin. */
   let size = { w: 0, h: 0 };
+  let handleSize = { w: 0, h: 0 };
+  let inset = { x: 0, y: 0 };
+  /** Position de la poignée à l'écran au début, et point saisi dans la poignée. */
+  let start = { x: 0, y: 0 };
+  let grab = { x: 0, y: 0 };
   let dragging = false;
   let moved = false;
   let inFlight = false;
   let stale = false;
 
-  const moveTo = (left: number, top: number) => {
-    if (geom === null || win === null) return;
-    pos = {
-      left: Math.round(clamp(left, 0, geom.width - size.w)),
-      top: Math.round(clamp(top, 0, geom.height - size.h)),
+  /** Place la poignée à (x, y) à l'écran, en choisissant le coin le plus proche. */
+  const placeHandle = (x: number, y: number) => {
+    if (win === null || geom === null) return;
+    const hx = clamp(x, inset.x, geom.width - handleSize.w - inset.x);
+    const hy = clamp(y, inset.y, geom.height - handleSize.h - inset.y);
+    const next: Corner = {
+      vertical: hy + handleSize.h / 2 < geom.height / 2 ? "top" : "bottom",
+      horizontal: hx + handleSize.w / 2 < geom.width / 2 ? "left" : "right",
     };
-    LayerShell.set_margin(win, Edge.LEFT, pos.left);
-    LayerShell.set_margin(win, Edge.TOP, pos.top);
+    margins = {
+      x: Math.round(next.horizontal === "left" ? hx - inset.x : geom.width - (hx + handleSize.w) - inset.x),
+      y: Math.round(next.vertical === "top" ? hy - inset.y : geom.height - (hy + handleSize.h) - inset.y),
+    };
+    const current = corner.peek();
+    if (current.vertical !== next.vertical || current.horizontal !== next.horizontal) setCorner(next);
+    setAnchors(win, next, margins.x, margins.y);
   };
 
   // Une seule requête à la fois ; si le curseur a bougé entre-temps, on relance.
@@ -86,7 +99,7 @@ export function makeDraggable(handle: Gtk.Widget, onClick: () => void): void {
     cursorPosition((cursor) => {
       inFlight = false;
       if (!dragging || geom === null) return;
-      if (cursor !== null) moveTo(cursor.x - geom.x - grab.x, cursor.y - geom.y - grab.y);
+      if (cursor !== null) placeHandle(cursor.x - geom.x - grab.x, cursor.y - geom.y - grab.y);
       if (stale) {
         stale = false;
         followCursor();
@@ -99,47 +112,40 @@ export function makeDraggable(handle: Gtk.Widget, onClick: () => void): void {
     win = root instanceof Gtk.Window ? root : null;
     geom = win === null ? null : monitorGeometry(win);
     if (win === null || geom === null) return;
+    const [ok, bounds] = handle.compute_bounds(win);
+    if (!ok) return;
     size = { w: win.get_width(), h: win.get_height() };
+    handleSize = { w: bounds.get_width(), h: bounds.get_height() };
     const c = corner.peek();
-    start = {
-      left: c.horizontal === "left" ? margins.x : geom.width - margins.x - size.w,
-      top: c.vertical === "top" ? margins.y : geom.height - margins.y - size.h,
+    inset = {
+      x: c.horizontal === "left" ? bounds.get_x() : size.w - bounds.get_x() - handleSize.w,
+      y: c.vertical === "top" ? bounds.get_y() : size.h - bounds.get_y() - handleSize.h,
     };
-    pos = { ...start };
+    const winLeft = c.horizontal === "left" ? margins.x : geom.width - margins.x - size.w;
+    const winTop = c.vertical === "top" ? margins.y : geom.height - margins.y - size.h;
+    start = { x: winLeft + bounds.get_x(), y: winTop + bounds.get_y() };
     grab = { x, y };
     dragging = true;
     moved = false;
   });
 
   drag.connect("drag-update", (_g, dx, dy) => {
-    if (!dragging || geom === null || win === null) return;
+    if (!dragging) return;
     if (!moved) {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       moved = true;
-      // Pendant le glissement : accroche en haut à gauche, position absolue.
-      setAnchors(win, { vertical: "top", horizontal: "left" }, start.left, start.top);
     }
-    // Sans Hyprland, la fenêtre ne bouge qu'au lâcher (décalage exact, surface immobile).
+    // Sans Hyprland, la poignée ne bouge qu'au lâcher (décalage exact, fenêtre immobile).
     if (hyprlandAvailable()) followCursor();
   });
 
   drag.connect("drag-end", (_g, dx, dy) => {
     dragging = false;
-    if (!moved || geom === null || win === null) {
+    if (!moved) {
       onClick();
       return;
     }
-    if (!hyprlandAvailable()) moveTo(start.left + dx, start.top + dy);
-    const next: Corner = {
-      vertical: pos.top + size.h / 2 < geom.height / 2 ? "top" : "bottom",
-      horizontal: pos.left + size.w / 2 < geom.width / 2 ? "left" : "right",
-    };
-    margins = {
-      x: next.horizontal === "left" ? pos.left : geom.width - pos.left - size.w,
-      y: next.vertical === "top" ? pos.top : geom.height - pos.top - size.h,
-    };
-    setCorner(next);
-    setAnchors(win, next, margins.x, margins.y);
+    if (!hyprlandAvailable()) placeHandle(start.x + dx, start.y + dy);
   });
 
   handle.add_controller(drag);

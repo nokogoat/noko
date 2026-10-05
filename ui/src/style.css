@@ -12,7 +12,15 @@ window.noko-widget {
   --noko-warn: #f6c177;
   --noko-error: #eb6f92;
   --noko-border: rgba(255, 255, 255, 0.08);
+  --noko-shadow: rgba(0, 0, 0, 0.35);
   --noko-radius: 14px;
+
+  /* Mouvement : entrée douce (ease-out), sortie plus rapide qui accélère (ease-in). */
+  --noko-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --noko-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --noko-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  /* Décélération marquée : grands éléments qui arrivent (ouverture de la carte). */
+  --noko-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
 
   background: transparent;
   color: var(--noko-fg);
@@ -26,61 +34,73 @@ window.noko-catcher {
 /* --- Pastille ------------------------------------------------------------- */
 
 .pill {
+  margin: 6px;
   padding: 6px 14px;
   background: var(--noko-bg);
   border: 1px solid var(--noko-border);
   border-radius: 999px;
-  box-shadow: none;
+  box-shadow: 0 4px 14px var(--noko-shadow);
   color: var(--noko-fg);
+  /* Réapparition, à la fin du repli de la carte : courte et un peu différée. */
+  transition:
+    opacity 160ms var(--noko-ease-out) 150ms,
+    transform 200ms var(--noko-ease-out) 150ms,
+    border-color 150ms var(--noko-ease);
 }
 
 .pill:hover {
   border-color: var(--noko-accent);
 }
 
-.pill .name {
-  font-weight: bold;
-  color: var(--noko-accent);
+.pill:active {
+  transform: scale(0.96);
+  transition: transform 100ms var(--noko-ease);
 }
 
-.pill .state {
-  color: var(--noko-muted);
-}
-
-.pill .dot {
-  font-size: 0.8em;
-  color: var(--noko-muted);
-}
-
-.pill.ready .dot {
-  color: var(--noko-ok);
-}
-
-.pill.busy .dot {
-  color: var(--noko-accent);
-}
-
-.pill.permission {
-  border-color: var(--noko-warn);
-}
-
-.pill.permission .dot,
-.pill.permission .state {
-  color: var(--noko-warn);
-}
-
-.pill.offline .dot {
-  color: var(--noko-error);
+/* Cachée pendant que la carte est ouverte : s'efface tout de suite, sur place. */
+.pill.hidden {
+  opacity: 0;
+  transform: scale(0.92);
+  transition:
+    opacity 90ms var(--noko-ease-in),
+    transform 90ms var(--noko-ease-in);
 }
 
 /* --- Carte ---------------------------------------------------------------- */
 
 .card {
+  margin: 6px;
   padding: 12px;
   background: var(--noko-bg);
   border: 1px solid var(--noko-border);
   border-radius: var(--noko-radius);
+  box-shadow: 0 10px 30px var(--noko-shadow);
+  /* Ouverture : la carte grandit depuis la pastille et arrive en douceur. */
+  transition:
+    opacity 180ms var(--noko-ease-out),
+    transform 300ms var(--noko-ease-emphasized);
 }
+
+/* Fermée : réduite vers la taille de la pastille, dans son coin, et transparente.
+   L'opacité part plus vite que la réduction : le contenu écrasé ne se voit pas. */
+.card.closed {
+  opacity: 0;
+  transition:
+    opacity 180ms var(--noko-ease-in),
+    transform 240ms var(--noko-ease);
+}
+
+/* La carte éclot depuis le coin de la pastille. */
+.card.from-bottom-left { transform-origin: left bottom; }
+.card.from-bottom-right { transform-origin: right bottom; }
+.card.from-top-left { transform-origin: left top; }
+.card.from-top-right { transform-origin: right top; }
+.card.closed { transform: scale(0.3, 0.08); }
+
+.pill.from-bottom-left { transform-origin: left bottom; }
+.pill.from-bottom-right { transform-origin: right bottom; }
+.pill.from-top-left { transform-origin: left top; }
+.pill.from-top-right { transform-origin: right top; }
 
 .header button.icon {
   min-width: 28px;
@@ -97,9 +117,20 @@ window.noko-catcher {
   padding: 4px 10px;
 }
 
+.card button,
+.card dropdown > button {
+  transition:
+    background 150ms var(--noko-ease),
+    border-color 150ms var(--noko-ease);
+}
+
 .card button:hover,
 .card dropdown > button:hover {
   background: var(--noko-surface-hover);
+}
+
+.card button:active {
+  transform: scale(0.97);
 }
 
 .usage {

@@ -4,7 +4,8 @@
 import Gtk from "gi://Gtk?version=4.0";
 import LayerShell from "gi://Gtk4LayerShell?version=1.0";
 import Pango from "gi://Pango?version=1.0";
-import { type Accessor, createComputed, createMemo, createState, For } from "gnim";
+import cairo from "cairo";
+import { createComputed, createMemo, createState, For } from "gnim";
 import type { SessionInfo } from "../../shared/protocol.ts";
 import { acceptImageDrops } from "./attachments.ts";
 import { Composer } from "./Composer.tsx";
@@ -29,7 +30,6 @@ import {
 
 const CARD_WIDTH = 380;
 const CARD_HEIGHT = 480;
-const TRANSITION_MS = 180;
 
 /**
  * La carte a été ouverte (ou touchée) par l'utilisateur : un clic à l'extérieur la
@@ -208,16 +208,17 @@ function ActivityLine() {
   );
 }
 
-function Card() {
+function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
   const usage = selectedSession((s) => s?.usage ?? null);
   return (
     <Gtk.Box
-      class="card"
+      class="card closed"
       orientation={Gtk.Orientation.VERTICAL}
       spacing={8}
       widthRequest={CARD_WIDTH}
       heightRequest={CARD_HEIGHT}
       $={(self) => {
+        onCreated(self);
         // Toucher la carte, c'est s'en servir : un clic à l'extérieur la refermera.
         const click = new Gtk.GestureClick();
         click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
@@ -262,7 +263,7 @@ function Card() {
 }
 
 /** Pastille : état d'ensemble en un coup d'œil ; un clic ouvre la carte, glisser la déplace. */
-function Pill({ halign }: { halign: Accessor<Gtk.Align> }) {
+function Pill({ onCreated }: { onCreated: (pill: Gtk.Box) => void }) {
   const state = createComputed(() => {
     if (connection() !== "connected") return { cls: "offline", text: "daemon absent" };
     const pending = permissions().length;
@@ -275,9 +276,11 @@ function Pill({ halign }: { halign: Accessor<Gtk.Align> }) {
     <Gtk.Box
       class={state((s) => `pill ${s.cls}`)}
       spacing={8}
-      halign={halign}
       tooltipText="Cliquer pour ouvrir, glisser pour déplacer"
-      $={(self) => makeDraggable(self, open)}
+      $={(self) => {
+        onCreated(self);
+        makeDraggable(self, open);
+      }}
     >
       <Gtk.Label class="dot" label="●" />
       <Gtk.Label class="name" label="noko" />
@@ -286,40 +289,77 @@ function Pill({ halign }: { halign: Accessor<Gtk.Align> }) {
   );
 }
 
-export function Widget({ app }: { app: Gtk.Application }) {
-  let window: Gtk.Window;
-  let root: Gtk.Box;
-  let pill: Gtk.Revealer;
-  let card: Gtk.Revealer;
+/** Classe CSS du coin d'accroche : point d'origine et sens des animations. */
+function cornerClass(): string {
+  const c = corner.peek();
+  return `from-${c.vertical}-${c.horizontal}`;
+}
 
-  // La carte s'ouvre vers le centre de l'écran : au-dessus de la pastille si elle est
-  // accrochée en bas, en dessous sinon ; la pastille reste collée au bord d'accroche.
-  const slide = corner((c) =>
-    c.vertical === "bottom" ? Gtk.RevealerTransitionType.SLIDE_UP : Gtk.RevealerTransitionType.SLIDE_DOWN,
-  );
-  const halign = corner((c) => (c.horizontal === "left" ? Gtk.Align.START : Gtk.Align.END));
-  const order = () => {
-    if (corner.peek().vertical === "bottom") root.reorder_child_after(pill, card);
-    else root.reorder_child_after(card, pill);
+/**
+ * Seule la partie visible capte la souris (pastille, ou carte ouverte) : le reste de la
+ * fenêtre, transparent, laisse passer les clics vers les fenêtres en dessous.
+ */
+function trackInputRegion(win: Gtk.Window, card: Gtk.Widget, pill: Gtk.Widget): void {
+  let last = "";
+  win.add_tick_callback(() => {
+    const surface = win.get_surface();
+    const target = expanded.peek() ? card : pill;
+    const [ok, bounds] = target.compute_bounds(win);
+    if (surface === null || !ok) return true;
+    const rect = {
+      x: Math.floor(bounds.get_x()),
+      y: Math.floor(bounds.get_y()),
+      width: Math.ceil(bounds.get_width()),
+      height: Math.ceil(bounds.get_height()),
+    };
+    const key = `${rect.x},${rect.y},${rect.width},${rect.height}`;
+    if (key !== last) {
+      last = key;
+      const region = new cairo.Region();
+      region.unionRectangle(rect);
+      surface.set_input_region(region);
+    }
+    return true;
+  });
+}
+
+/**
+ * Ouverture et fermeture animées en CSS, opacité et transformation seulement (voir
+ * style.css). La fenêtre ne change jamais de taille : la carte se replie vers la
+ * pastille, immobile dans son coin, qui réapparaît à la fin ; l'ouverture fait l'inverse.
+ */
+function animateToggle(card: Gtk.Box, pill: Gtk.Box): void {
+  const setCorner = () => {
+    for (const w of [card, pill]) {
+      for (const cls of w.get_css_classes()) if (cls.startsWith("from-")) w.remove_css_class(cls);
+      w.add_css_class(cornerClass());
+    }
   };
-
-  // Un revealer replié garde la largeur de son contenu (seule la hauteur s'anime) :
-  // on le masque à la fin de l'animation, sinon la pastille s'étire sur 380 px.
-  const toggle = () => {
+  const apply = () => {
     const open = expanded.peek();
-    const showing = open ? card : pill;
-    const hiding = open ? pill : card;
-    showing.visible = true;
-    showing.revealChild = true;
-    hiding.revealChild = false;
+    card.canTarget = open;
+    pill.canTarget = !open;
+    if (open) {
+      pill.add_css_class("hidden");
+      card.remove_css_class("closed");
+    } else {
+      card.add_css_class("closed");
+      pill.remove_css_class("hidden");
+    }
   };
-  const hideWhenFolded = (self: Gtk.Revealer) => {
-    self.connect("notify::child-revealed", () => {
-      if (self.childRevealed || self.revealChild) return;
-      self.visible = false;
-      window.set_default_size(1, 1);
-    });
-  };
+  setCorner();
+  corner.subscribe(setCorner);
+  apply();
+  expanded.subscribe(apply);
+}
+
+export function Widget({ app }: { app: Gtk.Application }) {
+  let card: Gtk.Box;
+  let pill: Gtk.Box;
+  let pillHolder: Gtk.Box;
+  // La pastille et la carte partagent le coin d'accroche : la carte « éclot » de la pastille.
+  const halign = corner((c) => (c.horizontal === "left" ? Gtk.Align.START : Gtk.Align.END));
+  const valign = corner((c) => (c.vertical === "top" ? Gtk.Align.START : Gtk.Align.END));
 
   return (
     <Gtk.ApplicationWindow
@@ -327,41 +367,25 @@ export function Widget({ app }: { app: Gtk.Application }) {
       title="noko"
       class="noko-widget"
       $={(win) => {
-        window = win;
         setupLayerShell(win);
         setupClickCatcher(app, win);
-        order();
-        corner.subscribe(order);
-        toggle();
-        expanded.subscribe(toggle);
+        animateToggle(card, pill);
+        trackInputRegion(win, card, pill);
         win.present();
       }}
     >
-      <Gtk.Box class="root" orientation={Gtk.Orientation.VERTICAL} $={(self) => (root = self)}>
-        <Gtk.Revealer
-          visible={false}
-          transitionType={slide}
-          transitionDuration={TRANSITION_MS}
-          halign={halign}
-          $={(self) => {
-            card = self;
-            hideWhenFolded(self);
-          }}
-        >
-          <Card />
-        </Gtk.Revealer>
-        <Gtk.Revealer
-          transitionType={Gtk.RevealerTransitionType.CROSSFADE}
-          transitionDuration={TRANSITION_MS}
-          halign={halign}
-          $={(self) => {
-            pill = self;
-            hideWhenFolded(self);
-          }}
-        >
-          <Pill halign={halign} />
-        </Gtk.Revealer>
-      </Gtk.Box>
+      <Gtk.Overlay
+        class="root"
+        $={(self) => {
+          // La pastille compte dans la taille : fenêtre à sa taille quand la carte est cachée.
+          self.set_measure_overlay(pillHolder, true);
+        }}
+      >
+        <Card onCreated={(c) => (card = c)} />
+        <Gtk.Box $type="overlay" halign={halign} valign={valign} $={(self) => (pillHolder = self)}>
+          <Pill onCreated={(p) => (pill = p)} />
+        </Gtk.Box>
+      </Gtk.Overlay>
     </Gtk.ApplicationWindow>
   );
 }
