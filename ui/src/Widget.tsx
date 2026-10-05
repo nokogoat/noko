@@ -10,6 +10,7 @@ import type { FileDiff, SessionInfo } from "../../shared/protocol.ts";
 import { acceptImageDrops } from "./attachments.ts";
 import { Composer } from "./Composer.tsx";
 import { DiffView, diffStats } from "./DiffView.tsx";
+import { labelFactory } from "./dropdown.ts";
 import { activityText, STATUS_LABEL, usageText, usageTooltip } from "./format.ts";
 import { claimKeyboardOnClick, releaseKeyboard, releaseKeyboardWhenDone } from "./keyboard.ts";
 import { shortenPath } from "./paths.ts";
@@ -126,6 +127,8 @@ function SessionPicker() {
       class="session-picker"
       hexpand
       model={model}
+      factory={labelFactory(Pango.EllipsizeMode.MIDDLE)}
+      listFactory={labelFactory(Pango.EllipsizeMode.NONE)}
       tooltipText="Session affichée"
       $={(self) => {
         const sync = () => {

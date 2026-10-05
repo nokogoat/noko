@@ -4,6 +4,7 @@
 
 import Gio from "gi://Gio?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
+import Pango from "gi://Pango?version=1.0";
 import { createComputed, createState, For } from "gnim";
 import type { ErrorCode } from "../../shared/protocol.ts";
 import { createSession, focusSession, isClosed, isLiveTerminal, sendToSession, stopSession } from "./actions.ts";
@@ -14,6 +15,7 @@ import {
   removeAttachment,
   takeAttachments,
 } from "./attachments.ts";
+import { labelFactory } from "./dropdown.ts";
 import { claimKeyboardOnClick } from "./keyboard.ts";
 import { homeDir, shortenPath } from "./paths.ts";
 import { composing, folders, lastError, selectedId, sessions, setComposing } from "./store.ts";
@@ -123,6 +125,8 @@ function NewSessionForm() {
           class="folder-choice"
           hexpand
           model={model}
+          factory={labelFactory(Pango.EllipsizeMode.START)}
+          listFactory={labelFactory(Pango.EllipsizeMode.NONE)}
           tooltipText="Dossier de la session"
           $={(self) => {
             dropdown = self;
