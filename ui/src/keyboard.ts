@@ -9,7 +9,11 @@ function setMode(win: Gtk.Window, mode: LayerShell.KeyboardMode): void {
   if (LayerShell.get_keyboard_mode(win) !== mode) LayerShell.set_keyboard_mode(win, mode);
 }
 
-/** Au clic dans le champ : le panneau demande le clavier (mode « on-demand »). */
+/**
+ * Au clic dans le champ : le panneau demande le clavier (mode « on-demand »). Un texte
+ * sélectionnable prend le focus par son propre clic : le lui donner ici sélectionnerait tout
+ * son contenu (comportement de GTK au focus), au lieu de ce qu'on surligne à la souris.
+ */
 export function claimKeyboardOnClick(entry: Gtk.Widget): void {
   const click = new Gtk.GestureClick();
   click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
@@ -17,7 +21,7 @@ export function claimKeyboardOnClick(entry: Gtk.Widget): void {
     const win = entry.get_root();
     if (!(win instanceof Gtk.Window)) return;
     setMode(win, LayerShell.KeyboardMode.ON_DEMAND);
-    entry.grab_focus();
+    if (!(entry instanceof Gtk.Label)) entry.grab_focus();
   });
   entry.add_controller(click);
 }
