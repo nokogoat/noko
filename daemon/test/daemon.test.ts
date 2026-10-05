@@ -1,0 +1,251 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { lstatSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, test } from "node:test";
+import type { ServerMessage } from "../../shared/protocol.ts";
+import type { SessionEvents, StartSession } from "../src/claude-session.ts";
+import { Daemon } from "../src/daemon.ts";
+import { SocketPathError } from "../src/ipc-server.ts";
+
+/** Client de test : envoie des lignes brutes et attend des messages. */
+class Client {
+  readonly sock: net.Socket;
+  private buffer = "";
+  private readonly received: ServerMessage[] = [];
+  private readonly waiters: (() => void)[] = [];
+  closed = false;
+
+  private constructor(sock: net.Socket) {
+    this.sock = sock;
+    sock.setEncoding("utf8");
+    sock.on("data", (chunk: string) => {
+      this.buffer += chunk;
+      let nl;
+      while ((nl = this.buffer.indexOf("\n")) !== -1) {
+        this.received.push(JSON.parse(this.buffer.slice(0, nl)) as ServerMessage);
+        this.buffer = this.buffer.slice(nl + 1);
+      }
+      this.notify();
+    });
+    sock.on("close", () => {
+      this.closed = true;
+      this.notify();
+    });
+    sock.on("error", () => {});
+  }
+
+  static connect(path: string): Promise<Client> {
+    return new Promise((resolve, reject) => {
+      const sock = net.connect(path, () => resolve(new Client(sock)));
+      sock.once("error", reject);
+    });
+  }
+
+  send(msg: unknown): void {
+    this.sock.write(JSON.stringify(msg) + "\n");
+  }
+
+  /** Attend (et consomme) le premier message qui vérifie le prédicat. */
+  async next<T extends ServerMessage["type"]>(
+    type: T,
+    pred: (m: Extract<ServerMessage, { type: T }>) => boolean = () => true,
+  ): Promise<Extract<ServerMessage, { type: T }>> {
+    for (;;) {
+      const i = this.received.findIndex((m) => m.type === type && pred(m as Extract<ServerMessage, { type: T }>));
+      if (i !== -1) return this.received.splice(i, 1)[0] as Extract<ServerMessage, { type: T }>;
+      if (this.closed) throw new Error(`connexion fermée avant ${type}`);
+      await this.wait();
+    }
+  }
+
+  async waitClosed(): Promise<void> {
+    while (!this.closed) await this.wait();
+  }
+
+  private wait(): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(), 2000);
+      this.waiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  private notify(): void {
+    for (const w of this.waiters.splice(0)) w();
+  }
+}
+
+/** Fausse session Claude : le test pilote les événements à la main. */
+interface FakeSession {
+  cwd: string;
+  prompt: string;
+  sent: string[];
+  stopped: boolean;
+  events: SessionEvents;
+}
+
+let dir: string;
+let path: string;
+let daemon: Daemon;
+let fakes: FakeSession[];
+const startFake: StartSession = ({ cwd, prompt, events }) => {
+  const fake: FakeSession = { cwd, prompt, sent: [], stopped: false, events };
+  fakes.push(fake);
+  return {
+    send: (text) => fake.sent.push(text),
+    stop: () => {
+      fake.stopped = true;
+    },
+  };
+};
+
+beforeEach(async () => {
+  dir = mkdtempSync(join(tmpdir(), "noko-test-"));
+  path = join(dir, "noko.sock");
+  fakes = [];
+  daemon = new Daemon(path, startFake, { maxConnections: 3, maxLineBytes: 4096 });
+  await daemon.start();
+});
+
+afterEach(async () => {
+  await daemon.stop();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("la socket est créée en 0600 et supprimée à l'arrêt", async () => {
+  const st = lstatSync(path);
+  assert.ok(st.isSocket());
+  assert.equal(st.mode & 0o777, 0o600);
+  await daemon.stop();
+  assert.throws(() => lstatSync(path), { code: "ENOENT" });
+});
+
+test("refuse de démarrer si un daemon tourne déjà", async () => {
+  const second = new Daemon(path, startFake);
+  await assert.rejects(second.start(), SocketPathError);
+  // Le premier daemon répond toujours.
+  const c = await Client.connect(path);
+  c.send({ type: "state.get" });
+  await c.next("state.snapshot");
+  c.sock.destroy();
+});
+
+test("supprime une socket morte et refuse un fichier ordinaire", async () => {
+  await daemon.stop();
+  // Socket morte : un processus tué net (SIGKILL) laisse son fichier de socket derrière lui.
+  const child = spawn(process.execPath, [
+    "-e",
+    `require("node:net").createServer().listen(${JSON.stringify(path)}, () => console.log("ok"))`,
+  ]);
+  await once(child.stdout, "data");
+  child.kill("SIGKILL");
+  await once(child, "exit");
+  assert.ok(lstatSync(path).isSocket());
+  daemon = new Daemon(path, startFake);
+  await daemon.start();
+  await daemon.stop();
+
+  writeFileSync(path, "");
+  daemon = new Daemon(path, startFake);
+  await assert.rejects(daemon.start(), SocketPathError);
+  rmSync(path);
+  daemon = new Daemon(path, startFake);
+  await daemon.start();
+});
+
+test("state.get renvoie un instantané vide au départ", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "state.get" });
+  assert.deepEqual(await c.next("state.snapshot"), { type: "state.snapshot", sessions: [] });
+  c.sock.destroy();
+});
+
+test("un message invalide renvoie une erreur et ferme la connexion", async () => {
+  for (const line of ["pas du json", JSON.stringify({ type: "inconnu" }), JSON.stringify({ type: "state.get", x: 1 })]) {
+    const c = await Client.connect(path);
+    c.sock.write(line + "\n");
+    const err = await c.next("error");
+    assert.equal(err.code, "invalid_message");
+    await c.waitClosed();
+  }
+});
+
+test("une ligne trop longue ferme la connexion", async () => {
+  const c = await Client.connect(path);
+  c.sock.write("x".repeat(5000));
+  await c.waitClosed();
+});
+
+test("le nombre de connexions est borné", async () => {
+  const clients = await Promise.all([1, 2, 3].map(() => Client.connect(path)));
+  const extra = await Client.connect(path);
+  await extra.waitClosed();
+  for (const c of clients) {
+    c.send({ type: "state.get" });
+    await c.next("state.snapshot");
+    c.sock.destroy();
+  }
+});
+
+test("cycle de vie d'une session", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "bonjour", name: "essai" });
+  const created = await c.next("session.update", (m) => m.session.status === "starting");
+  const id = created.session.id;
+  assert.equal(created.session.name, "essai");
+  assert.equal(fakes.length, 1);
+  const fake = fakes[0]!;
+  assert.equal(fake.prompt, "bonjour");
+
+  fake.events.onInit("claude-session-1");
+  const running = await c.next("session.update", (m) => m.session.status === "running");
+  assert.equal(running.session.claudeSessionId, "claude-session-1");
+
+  fake.events.onDelta("Sal");
+  fake.events.onDelta("ut");
+  assert.equal((await c.next("message.delta")).text, "Sal");
+  assert.equal((await c.next("message.delta")).text, "ut");
+  fake.events.onAssistantText("Salut");
+  assert.equal((await c.next("message.complete")).text, "Salut");
+  fake.events.onTurnEnd(false);
+  await c.next("session.update", (m) => m.session.status === "idle");
+
+  c.send({ type: "session.send", sessionId: id, text: "encore" });
+  await c.next("session.update", (m) => m.session.status === "running");
+  assert.deepEqual(fake.sent, ["encore"]);
+
+  c.send({ type: "session.stop", sessionId: id });
+  await c.next("session.update", (m) => m.session.status === "stopped");
+  assert.ok(fake.stopped);
+
+  // Les événements tardifs d'une session arrêtée sont ignorés.
+  fake.events.onDelta("trop tard");
+  c.send({ type: "session.send", sessionId: id, text: "x" });
+  assert.equal((await c.next("error")).code, "session_closed");
+
+  c.send({ type: "state.get" });
+  const snap = await c.next("state.snapshot");
+  assert.equal(snap.sessions.length, 1);
+  assert.equal(snap.sessions[0]!.status, "stopped");
+  c.sock.destroy();
+});
+
+test("erreurs : dossier introuvable, session inconnue, fin sur erreur", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: join(dir, "absent"), prompt: "x" });
+  assert.equal((await c.next("error")).code, "invalid_cwd");
+  c.send({ type: "session.stop", sessionId: "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b" });
+  assert.equal((await c.next("error")).code, "unknown_session");
+
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  await c.next("session.update", (m) => m.session.status === "starting");
+  fakes[0]!.events.onExit(new Error("boom"));
+  await c.next("session.update", (m) => m.session.status === "error");
+  c.sock.destroy();
+});
