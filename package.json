@@ -1,6 +1,6 @@
 {
   "name": "noko",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -19,7 +19,6 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.283",
-    "gnim": "1.9.1",
     "smol-toml": "1.9.0",
     "zod": "4.6.5"
   },
@@ -30,6 +29,7 @@
     "@girs/gtk4layershell-1.0": "5.4.0",
     "@types/node": "26.6.3",
     "esbuild": "0.28.2",
+    "gnim": "1.9.1",
     "typescript": "7.0.2"
   }
 }
