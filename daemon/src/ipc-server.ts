@@ -8,7 +8,7 @@ import {
   MAX_LINE_BYTES,
   ServerMessage,
 } from "../../shared/protocol.ts";
-import { LineDecoder } from "./line-decoder.ts";
+import { LineDecoder } from "../../shared/line-decoder.ts";
 import { errorFields, log } from "./log.ts";
 
 export class SocketPathError extends Error {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LineDecoder, LineTooLongError } from "../src/line-decoder.ts";
+import { LineDecoder, LineTooLongError } from "../../shared/line-decoder.ts";
 
 const b = (s: string) => Buffer.from(s, "utf8");
 
