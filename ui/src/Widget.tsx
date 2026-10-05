@@ -43,12 +43,12 @@ const cardHeight = config((c) => c.panel.height);
  */
 const [engaged, setEngaged] = createState(false);
 
-function open(): void {
+export function open(): void {
   setEngaged(true);
   setExpanded(true);
 }
 
-function close(): void {
+export function close(): void {
   setEngaged(false);
   setExpanded(false);
 }

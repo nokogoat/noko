@@ -8,8 +8,8 @@ import { createRoot } from "gnim";
 import { programArgs, programInvocationName } from "system";
 import { client, loadSelectedHistory } from "./actions.ts";
 import { startSettings } from "./settings.ts";
-import { Widget } from "./Widget.tsx";
-import { connection, selectedId, sessions, setExpanded } from "./store.ts";
+import { close, open, Widget } from "./Widget.tsx";
+import { connection, expanded, selectedId, sessions } from "./store.ts";
 import css from "./style.css";
 
 const APP_ID = "io.github.nokogoat.Noko";
@@ -32,7 +32,7 @@ let started = false;
 app.connect("activate", () => {
   // Instance unique : une seconde activation ouvre la carte.
   if (started) {
-    setExpanded(true);
+    open();
     return;
   }
   started = true;
@@ -46,6 +46,19 @@ app.connect("activate", () => {
   connection.subscribe(loadSelectedHistory);
   client.start();
 });
+
+// Actions pour un raccourci clavier, par ex. dans hyprland.conf :
+//   bind = SUPER, N, exec, gapplication action io.github.nokogoat.Noko toggle
+const actions: Record<string, () => void> = {
+  toggle: () => (expanded.peek() ? close() : open()),
+  open,
+  close,
+};
+for (const [name, run] of Object.entries(actions)) {
+  const action = new Gio.SimpleAction({ name });
+  action.connect("activate", run);
+  app.add_action(action);
+}
 
 app.connect("shutdown", () => client.stop());
 
