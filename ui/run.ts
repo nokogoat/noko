@@ -31,7 +31,7 @@ const options: esbuild.BuildOptions = {
   target: "esnext",
   // Modules fournis par GJS lui-même.
   external: ["gi://*", "resource://*", "system", "gettext", "cairo", "console"],
-  loader: { ".css": "text" },
+  loader: { ".css": "text", ".toml": "text" },
   jsx: "automatic",
   jsxImportSource: "gnim/gtk4",
   legalComments: "none",

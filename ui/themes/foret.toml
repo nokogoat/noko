@@ -1,0 +1,19 @@
+name = "Forêt"
+author = "noko"
+
+[colors]
+background = "rgba(20, 28, 24, 0.94)"
+surface = "rgba(255, 255, 255, 0.05)"
+surface_hover = "rgba(255, 255, 255, 0.09)"
+foreground = "#e3ece6"
+muted = "#87a092"
+accent = "#8fd19e"
+ok = "#a8d5ba"
+warn = "#e6c86e"
+error = "#e07a7a"
+border = "rgba(143, 209, 158, 0.15)"
+shadow = "rgba(0, 0, 0, 0.40)"
+
+[shape]
+radius = 14
+font_scale = 0.95

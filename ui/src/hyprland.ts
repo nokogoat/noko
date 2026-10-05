@@ -5,6 +5,7 @@
 import Gio from "gi://Gio?version=2.0";
 import GLib from "gi://GLib?version=2.0";
 import { z } from "zod";
+import { hyprlandColor } from "../../shared/config.ts";
 
 const MAX_REPLY_BYTES = 64 * 1024;
 
@@ -102,5 +103,16 @@ export function cursorPosition(done: (pos: CursorPos | null) => void): void {
   request("j/cursorpos", (reply) => {
     const parsed = CursorPos.safeParse(reply);
     done(parsed.success ? parsed.data : null);
+  });
+}
+
+const BorderOption = z.object({ gradient: z.string().max(256) });
+
+/** Première couleur de la bordure des fenêtres actives (rgba() CSS), ou null. */
+export function activeBorderColor(done: (color: string | null) => void): void {
+  request("j/getoption general:col.active_border", (reply) => {
+    const parsed = BorderOption.safeParse(reply);
+    const first = parsed.success ? parsed.data.gradient.split(/\s+/)[0] : undefined;
+    done(first === undefined ? null : hyprlandColor(first));
   });
 }

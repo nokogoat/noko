@@ -7,6 +7,7 @@ import Gtk from "gi://Gtk?version=4.0";
 import { createRoot } from "gnim";
 import { programArgs, programInvocationName } from "system";
 import { client, loadSelectedHistory } from "./actions.ts";
+import { startSettings } from "./settings.ts";
 import { Widget } from "./Widget.tsx";
 import { connection, selectedId, sessions, setExpanded } from "./store.ts";
 import css from "./style.css";
@@ -36,6 +37,7 @@ app.connect("activate", () => {
   }
   started = true;
   loadStyle();
+  startSettings();
   createRoot(() => Widget({ app }));
   // Historique de la session affichée, dès qu'elle est connue (sélection, connexion,
   // identifiant Claude reçu).

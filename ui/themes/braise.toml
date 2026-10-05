@@ -1,0 +1,19 @@
+name = "Braise"
+author = "noko"
+
+[colors]
+background = "rgba(30, 22, 20, 0.95)"
+surface = "rgba(255, 255, 255, 0.05)"
+surface_hover = "rgba(255, 255, 255, 0.09)"
+foreground = "#f1e6e0"
+muted = "#a8918a"
+accent = "#ff9e64"
+ok = "#9ece6a"
+warn = "#e0af68"
+error = "#f7768e"
+border = "rgba(255, 158, 100, 0.15)"
+shadow = "rgba(0, 0, 0, 0.40)"
+
+[shape]
+radius = 20
+font_scale = 0.95

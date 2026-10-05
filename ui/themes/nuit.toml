@@ -1,0 +1,23 @@
+# Thème par défaut de noko. Copie ce fichier dans ~/.config/noko/themes/<nom>.toml,
+# change les couleurs, puis mets `name = "<nom>"` dans la section [theme] de config.toml.
+# Couleurs acceptées : #rgb, #rgba, #rrggbb, #rrggbbaa, rgb(r, g, b), rgba(r, g, b, a).
+
+name = "Nuit"
+author = "noko"
+
+[colors]
+background = "rgba(24, 24, 32, 0.94)"   # fond de la pastille et de la carte
+surface = "rgba(255, 255, 255, 0.05)"   # zones (conversation, champs)
+surface_hover = "rgba(255, 255, 255, 0.09)"
+foreground = "#e6e6ef"                  # texte
+muted = "#8b8ba3"                       # texte secondaire
+accent = "#c4a7e7"                      # couleur principale
+ok = "#9ccfd8"                          # succès, « Autoriser »
+warn = "#f6c177"                        # autorisation en attente
+error = "#eb6f92"                       # erreurs, « Refuser »
+border = "rgba(255, 255, 255, 0.08)"
+shadow = "rgba(0, 0, 0, 0.35)"
+
+[shape]
+radius = 17        # rayon des coins, en pixels (0 à 32)
+font_scale = 0.95  # taille du texte (0.7 à 1.5)

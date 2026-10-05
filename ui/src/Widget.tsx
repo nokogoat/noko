@@ -15,7 +15,8 @@ import { shortenPath } from "./paths.ts";
 import { PermissionCard } from "./PermissionCard.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { applyPlacement, corner, makeDraggable } from "./placement.ts";
-import { Spring, type SpringConfig } from "./spring.ts";
+import { config } from "./settings.ts";
+import { setMotion, Spring, type SpringConfig } from "./spring.ts";
 import {
   composing,
   connection,
@@ -31,8 +32,9 @@ import {
   type Entry,
 } from "./store.ts";
 
-const CARD_WIDTH = 380;
-const CARD_HEIGHT = 480;
+/** Taille de la carte ouverte (config.toml, section [panel]). */
+const cardWidth = config((c) => c.panel.width);
+const cardHeight = config((c) => c.panel.height);
 
 /**
  * La carte a été ouverte (ou touchée) par l'utilisateur : un clic à l'extérieur la
@@ -88,7 +90,7 @@ function setupClickCatcher(app: Gtk.Application, widget: Gtk.Window): void {
   click.connect("pressed", close);
   catcher.add_controller(click);
 
-  const active = createComputed(() => expanded() && engaged());
+  const active = createComputed(() => expanded() && engaged() && config().behavior.close_on_click_outside);
   active.subscribe(() => {
     if (active.peek()) {
       const monitor = LayerShell.get_monitor(widget);
@@ -219,8 +221,8 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
       class="card"
       orientation={Gtk.Orientation.VERTICAL}
       spacing={8}
-      widthRequest={CARD_WIDTH}
-      heightRequest={CARD_HEIGHT}
+      widthRequest={cardWidth}
+      heightRequest={cardHeight}
       $={(self) => {
         onCreated(self);
         // Toucher la carte, c'est s'en servir : un clic à l'extérieur la refermera.
@@ -252,7 +254,7 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
         class="permissions"
         hscrollbarPolicy={Gtk.PolicyType.NEVER}
         propagateNaturalHeight
-        maxContentHeight={(CARD_HEIGHT * 3) / 5}
+        maxContentHeight={cardHeight((h) => Math.round((h * 3) / 5))}
         visible={createComputed(() => permissions().length + questions().length > 0)}
       >
         <Gtk.Box orientation={Gtk.Orientation.VERTICAL} spacing={8}>
@@ -318,7 +320,7 @@ function animateMorph(win: Gtk.Window, shell: Gtk.Widget, spacer: Gtk.Widget, ca
     const [, h] = pill.measure(Gtk.Orientation.VERTICAL, -1);
     return { w, h };
   };
-  const target = () => (expanded.peek() ? { w: CARD_WIDTH, h: CARD_HEIGHT } : pillSize());
+  const target = () => (expanded.peek() ? { w: cardWidth.peek(), h: cardHeight.peek() } : pillSize());
   const initial = target();
   const width = new Spring(initial.w, CLOSE_SPRING);
   const height = new Spring(initial.h, CLOSE_SPRING);
@@ -342,7 +344,7 @@ function animateMorph(win: Gtk.Window, shell: Gtk.Widget, spacer: Gtk.Widget, ca
     spacer.set_size_request(Math.round(width.value), Math.round(height.value));
     // Progression 0 (pastille) → 1 (carte), d'après la hauteur de la forme.
     const pill0 = pillSize().h;
-    const progress = (height.value - pill0) / Math.max(1, CARD_HEIGHT - pill0);
+    const progress = (height.value - pill0) / Math.max(1, cardHeight.peek() - pill0);
     card.opacity = smoothstep((progress - 0.45) / 0.5);
     pill.opacity = 1 - smoothstep(progress / 0.2);
   };
@@ -383,8 +385,15 @@ function animateMorph(win: Gtk.Window, shell: Gtk.Widget, spacer: Gtk.Widget, ca
 
   card.canTarget = expanded.peek();
   pill.canTarget = !expanded.peek();
+  setMotion(config.peek().animation.speed, config.peek().animation.enabled);
   render();
   expanded.subscribe(retarget);
+  // Taille de la carte modifiée dans la config : la forme suit.
+  config.subscribe(() => {
+    const { animation } = config.peek();
+    setMotion(animation.speed, animation.enabled);
+    retarget();
+  });
   // Texte de la pastille modifié : la forme suit sa nouvelle largeur, en douceur.
   pillState.subscribe(() => {
     if (!expanded.peek()) retarget();
@@ -418,7 +427,7 @@ export function Widget({ app }: { app: Gtk.Application }) {
     >
       <Gtk.Overlay class="root">
         {/* Taille fixe de la fenêtre : celle de la carte ouverte. */}
-        <Gtk.Box class="sizer" widthRequest={CARD_WIDTH} heightRequest={CARD_HEIGHT} />
+        <Gtk.Box class="sizer" widthRequest={cardWidth} heightRequest={cardHeight} />
         <Gtk.Overlay
           $type="overlay"
           class={pillState((s) => `shell ${s.cls}`)}

@@ -1,0 +1,19 @@
+name = "Aube"
+author = "noko"
+
+[colors]
+background = "rgba(250, 247, 242, 0.96)"
+surface = "rgba(0, 0, 0, 0.04)"
+surface_hover = "rgba(0, 0, 0, 0.08)"
+foreground = "#2b2a33"
+muted = "#7a7787"
+accent = "#8b5cf6"
+ok = "#0f8a7a"
+warn = "#c07a10"
+error = "#c8385e"
+border = "rgba(0, 0, 0, 0.10)"
+shadow = "rgba(0, 0, 0, 0.18)"
+
+[shape]
+radius = 17
+font_scale = 0.95

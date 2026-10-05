@@ -6,21 +6,57 @@
 import Gdk from "gi://Gdk?version=4.0";
 import Gtk from "gi://Gtk?version=4.0";
 import LayerShell from "gi://Gtk4LayerShell?version=1.0";
+import GLib from "gi://GLib?version=2.0";
 import { createState } from "gnim";
+import { z } from "zod";
+import type { CornerName } from "../../shared/config.ts";
+import { readText, STATE_DIR, writeText } from "./files.ts";
 import { cursorPosition, hyprlandAvailable } from "./hyprland.ts";
+import { config } from "./settings.ts";
 
 export interface Corner {
   vertical: "top" | "bottom";
   horizontal: "left" | "right";
 }
 
-const DEFAULT_MARGIN = 6;
 /** En deçà (en pixels), un glissement est un simple clic. */
 const DRAG_THRESHOLD = 4;
+/** Dernière position choisie à la souris (prime sur celle de la config). */
+const STATE_FILE = GLib.build_filenamev([STATE_DIR, "position.json"]);
+
+const SavedPosition = z.object({
+  corner: z.enum(["bottom-left", "bottom-right", "top-left", "top-right"]),
+  x: z.number().int().min(0).max(10000),
+  y: z.number().int().min(0).max(10000),
+});
+
+function toCorner(name: CornerName): Corner {
+  const [vertical, horizontal] = name.split("-") as [Corner["vertical"], Corner["horizontal"]];
+  return { vertical, horizontal };
+}
+
+function cornerName(c: Corner): CornerName {
+  return `${c.vertical}-${c.horizontal}`;
+}
+
+function savedPosition(): z.infer<typeof SavedPosition> | null {
+  const text = readText(STATE_FILE);
+  if (text === null) return null;
+  try {
+    const parsed = SavedPosition.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePosition(c: Corner, x: number, y: number): void {
+  writeText(STATE_FILE, JSON.stringify({ corner: cornerName(c), x, y }) + "\n");
+}
 
 export const [corner, setCorner] = createState<Corner>({ vertical: "bottom", horizontal: "left" });
 /** Distance de la fenêtre aux deux bords d'accroche. */
-let margins = { x: DEFAULT_MARGIN, y: DEFAULT_MARGIN };
+let margins = { x: 6, y: 6 };
 
 const { Edge } = LayerShell;
 
@@ -38,10 +74,30 @@ function setAnchors(win: Gtk.Window, c: Corner, x: number, y: number): void {
   win.queue_draw();
 }
 
+/** Place la fenêtre : dernière position mémorisée, sinon celle de la config. */
 export function applyPlacement(win: Gtk.Window): void {
+  const saved = savedPosition();
+  const panel = config.peek().panel;
+  margins = saved !== null ? { x: saved.x, y: saved.y } : { x: panel.margin_x, y: panel.margin_y };
+  setCorner(toCorner(saved !== null ? saved.corner : panel.corner));
   // -1 : marges mesurées depuis le bord de l'écran, sans tenir compte des barres.
   LayerShell.set_exclusive_zone(win, -1);
   setAnchors(win, corner.peek(), margins.x, margins.y);
+
+  // Position modifiée dans config.toml : elle s'applique et remplace celle mémorisée.
+  let previous = config.peek().panel;
+  config.subscribe(() => {
+    const panel = config.peek().panel;
+    const moved =
+      panel.corner !== previous.corner || panel.margin_x !== previous.margin_x || panel.margin_y !== previous.margin_y;
+    previous = panel;
+    if (!moved) return;
+    margins = { x: panel.margin_x, y: panel.margin_y };
+    const next = toCorner(panel.corner);
+    setCorner(next);
+    setAnchors(win, next, margins.x, margins.y);
+    savePosition(next, margins.x, margins.y);
+  });
 }
 
 function monitorGeometry(win: Gtk.Window): Gdk.Rectangle | null {
@@ -149,6 +205,7 @@ export function makeDraggable(handle: Gtk.Widget, onClick: () => void): void {
       return;
     }
     if (!hyprlandAvailable()) placeHandle(start.x + dx, start.y + dy);
+    savePosition(corner.peek(), margins.x, margins.y);
   });
 
   handle.add_controller(drag);

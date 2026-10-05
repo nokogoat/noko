@@ -10,6 +10,12 @@ declare module "*.css" {
   export default css;
 }
 
+// Thèmes intégrés et modèle de config, importés comme texte.
+declare module "*.toml" {
+  const text: string;
+  export default text;
+}
+
 // gnim importe le type de libadwaita, que noko n'utilise pas.
 declare module "gi://Adw" {
   const Adw: any;

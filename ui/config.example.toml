@@ -1,0 +1,35 @@
+# Configuration de noko. Ce fichier est relu automatiquement à chaque modification.
+# Une valeur invalide est ignorée (sa valeur par défaut s'applique) : rien ne casse.
+
+[panel]
+# Coin de départ de la pastille : "bottom-left", "bottom-right", "top-left", "top-right".
+# La position choisie en glissant la pastille est ensuite mémorisée.
+corner = "bottom-left"
+margin_x = 6        # distance au bord gauche ou droit, en pixels
+margin_y = 6        # distance au bord haut ou bas, en pixels
+width = 380         # largeur de la carte ouverte (280 à 1200)
+height = 480        # hauteur de la carte ouverte (240 à 1600)
+
+[theme]
+# Thèmes intégrés : "nuit", "aube", "foret", "braise".
+# Thème perso : ~/.config/noko/themes/<nom>.toml (pour commencer, copie un thème intégré
+# du dossier ui/themes/ de noko et change ses couleurs).
+name = "nuit"
+# Reprendre la couleur des bordures de Hyprland comme couleur d'accent.
+follow_hyprland = false
+
+[animation]
+enabled = true
+speed = 1.0         # 0.5 = deux fois plus lent, 2 = deux fois plus rapide (0.25 à 4)
+
+[behavior]
+open_on_request = true          # ouvrir la carte quand Claude demande une autorisation ou pose une question
+close_on_click_outside = true   # replier la carte quand on clique ailleurs
+
+[sounds]
+# Chemins absolus de fichiers son (.oga, .ogg, .wav, .flac). Laisser vide pour aucun son.
+# Exemple : "/usr/share/sounds/freedesktop/stereo/message.oga"
+enabled = false
+permission = ""     # autorisation demandée
+question = ""       # question posée
+done = ""           # Claude a fini de répondre

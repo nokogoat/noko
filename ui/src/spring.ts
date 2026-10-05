@@ -16,6 +16,14 @@ const SLOWDOWN = (() => {
   return Number.isFinite(value) && value >= 1 && value <= 20 ? value : 1;
 })();
 
+/** Réglages de la config : vitesse (1 = normal) et animations désactivées. */
+const motion = { speed: 1, enabled: true };
+
+export function setMotion(speed: number, enabled: boolean): void {
+  motion.speed = speed;
+  motion.enabled = enabled;
+}
+
 /** Pas d'intégration maximal (stabilité, même si une image est en retard). */
 const MAX_STEP = 1 / 240;
 
@@ -45,7 +53,11 @@ export class Spring {
 
   /** Avance de `seconds` secondes (temps réel). */
   step(seconds: number): void {
-    const dt = Math.min(seconds, 0.1) / SLOWDOWN;
+    if (!motion.enabled) {
+      this.jump(this.target);
+      return;
+    }
+    const dt = (Math.min(seconds, 0.1) * motion.speed) / SLOWDOWN;
     const k = this.config.stiffness;
     const c = 2 * this.config.dampingRatio * Math.sqrt(k);
     const steps = Math.max(1, Math.ceil(dt / MAX_STEP));

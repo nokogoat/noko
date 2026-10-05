@@ -10,6 +10,7 @@ import type {
   SessionInfo,
 } from "../../shared/protocol.ts";
 import type { ConnectionState } from "./ipc.ts";
+import { config } from "./settings.ts";
 
 export type Entry = HistoryMessage;
 
@@ -84,13 +85,13 @@ export function applyMessage(msg: ServerMessage): void {
       const others = permissions.peek().filter((p) => p.requestId !== msg.request.requestId);
       setPermissions([...others, msg.request]);
       // Une demande ne doit pas passer inaperçue : la carte s'ouvre (sans prendre le clavier).
-      setExpanded(true);
+      if (config.peek().behavior.open_on_request) setExpanded(true);
       return;
     }
     case "question.request": {
       const others = questions.peek().filter((q) => q.requestId !== msg.request.requestId);
       setQuestions([...others, msg.request]);
-      setExpanded(true);
+      if (config.peek().behavior.open_on_request) setExpanded(true);
       return;
     }
     case "question.resolved":
