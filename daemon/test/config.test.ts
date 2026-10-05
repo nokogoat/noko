@@ -10,6 +10,7 @@ test("config vide ou absente : valeurs par défaut", () => {
   assert.equal(DEFAULT_CONFIG.theme.name, "nuit");
   assert.equal(DEFAULT_CONFIG.sounds.enabled, false);
   assert.equal(DEFAULT_CONFIG.general.language, "auto");
+  assert.deepEqual(DEFAULT_CONFIG.notifications, { enabled: true, done: true, requests: true });
 });
 
 test("langue : fr, en ou auto ; une langue non traduite retombe sur auto", () => {

@@ -29,6 +29,13 @@ speed = 1.0         # 0.5 = deux fois plus lent, 2 = deux fois plus rapide (0.25
 open_on_request = true          # ouvrir la carte quand Claude demande une autorisation ou pose une question
 close_on_click_outside = true   # replier la carte quand on clique ailleurs
 
+[notifications]
+# Notifications du bureau quand la carte est fermée. Elles ne montrent que le nom de la
+# session (et de l'outil pour une autorisation), jamais le texte des réponses ni les commandes.
+enabled = true
+done = true         # Claude a fini de répondre (ou s'est arrêté sur une erreur)
+requests = true     # autorisation demandée, question posée
+
 [sounds]
 # Chemins absolus de fichiers son (.oga, .ogg, .wav, .flac). Laisser vide pour aucun son.
 # Exemple : "/usr/share/sounds/freedesktop/stereo/message.oga"

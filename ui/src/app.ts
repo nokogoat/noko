@@ -3,14 +3,16 @@
 
 import Gdk from "gi://Gdk?version=4.0";
 import Gio from "gi://Gio?version=2.0";
+import GLib from "gi://GLib?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
 import { createRoot } from "gnim";
 import { programArgs, programInvocationName } from "system";
 import { client, loadSelectedHistory } from "./actions.ts";
 import { startCardSize } from "./card-size.ts";
+import { SHOW_SESSION_ACTION, withdrawAll } from "./notifications.ts";
 import { startSettings } from "./settings.ts";
 import { close, open, Widget } from "./Widget.tsx";
-import { connection, expanded, selectedId, sessions } from "./store.ts";
+import { connection, expanded, selectedId, sessions, setSelectedId } from "./store.ts";
 import css from "./style.css";
 
 const APP_ID = "io.github.nokogoat.Noko";
@@ -46,6 +48,10 @@ app.connect("activate", () => {
   selectedId.subscribe(loadSelectedHistory);
   sessions.subscribe(loadSelectedHistory);
   connection.subscribe(loadSelectedHistory);
+  // Carte ouverte : les notifications en cours n'ont plus lieu d'être.
+  expanded.subscribe(() => {
+    if (expanded.peek()) withdrawAll();
+  });
   client.start();
 });
 
@@ -61,6 +67,15 @@ for (const [name, run] of Object.entries(actions)) {
   action.connect("activate", run);
   app.add_action(action);
 }
+
+// Clic sur une notification : la carte s'ouvre sur la session concernée (si elle existe encore).
+const showSession = new Gio.SimpleAction({ name: SHOW_SESSION_ACTION, parameterType: new GLib.VariantType("s") });
+showSession.connect("activate", (_action, parameter) => {
+  const id = parameter?.unpack() as unknown;
+  if (typeof id === "string" && sessions.peek().some((s) => s.id === id)) setSelectedId(id);
+  open();
+});
+app.add_action(showSession);
 
 app.connect("shutdown", () => client.stop());
 

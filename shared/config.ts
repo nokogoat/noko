@@ -65,6 +65,14 @@ export const ConfigSchema = z.object({
     /** Replier la carte quand on clique en dehors. */
     close_on_click_outside: bool(true),
   }),
+  notifications: section({
+    /** Notifications du bureau quand la carte est fermée (jamais le texte des réponses). */
+    enabled: bool(true),
+    /** Claude a fini un tour, ou s'est arrêté sur une erreur. */
+    done: bool(true),
+    /** Autorisation demandée ou question posée. */
+    requests: bool(true),
+  }),
   sounds: section({
     enabled: bool(false),
     permission: SoundPath.catch(""),

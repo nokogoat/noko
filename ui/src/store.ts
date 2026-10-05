@@ -11,6 +11,7 @@ import type {
 } from "../../shared/protocol.ts";
 import { t } from "./i18n.ts";
 import type { ConnectionState } from "./ipc.ts";
+import { notify } from "./notifications.ts";
 import { config } from "./settings.ts";
 import { playSound } from "./sounds.ts";
 
@@ -56,6 +57,8 @@ export function expectNewSession(): void {
 
 const byActivity = (a: SessionInfo, b: SessionInfo) => b.lastActivity - a.lastActivity;
 
+const sessionById = (id: string) => sessions.peek().find((s) => s.id === id);
+
 export function transcriptOf(id: string): Transcript {
   return transcripts.peek().get(id) ?? EMPTY;
 }
@@ -86,6 +89,8 @@ export function applyMessage(msg: ServerMessage): void {
     case "permission.request": {
       const others = permissions.peek().filter((p) => p.requestId !== msg.request.requestId);
       setPermissions([...others, msg.request]);
+      // Avant l'ouverture automatique : la notification n'est envoyée que carte fermée.
+      notify("permission", sessionById(msg.request.sessionId), msg.request.toolName);
       // Une demande ne doit pas passer inaperçue : la carte s'ouvre (sans prendre le clavier).
       if (config.peek().behavior.open_on_request) setExpanded(true);
       playSound("permission");
@@ -94,6 +99,7 @@ export function applyMessage(msg: ServerMessage): void {
     case "question.request": {
       const others = questions.peek().filter((q) => q.requestId !== msg.request.requestId);
       setQuestions([...others, msg.request]);
+      notify("question", sessionById(msg.request.sessionId));
       if (config.peek().behavior.open_on_request) setExpanded(true);
       playSound("question");
       return;
@@ -107,7 +113,12 @@ export function applyMessage(msg: ServerMessage): void {
     case "session.update": {
       const previous = sessions.peek();
       const before = previous.find((s) => s.id === msg.session.id)?.status;
-      if ((before === "running" || before === "starting") && msg.session.status === "idle") playSound("done");
+      const wasWorking = before === "running" || before === "starting";
+      if (wasWorking && msg.session.status === "idle") {
+        playSound("done");
+        notify("done", msg.session);
+      }
+      if (before !== undefined && before !== "error" && msg.session.status === "error") notify("error", msg.session);
       const isNew = !previous.some((s) => s.id === msg.session.id);
       const list = [msg.session, ...previous.filter((s) => s.id !== msg.session.id)].sort(byActivity);
       setSessions(list);

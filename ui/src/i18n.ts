@@ -55,6 +55,15 @@ const fr = {
     tooltip: (cwd: string | null) =>
       `${cwd !== null ? `${cwd}\n` : ""}Cliquer pour ouvrir, glisser pour déplacer`,
   },
+  notify: {
+    done: (name: string) => `${name} : Claude a fini`,
+    doneBody: "Ouvre noko pour voir la réponse et les modifications.",
+    error: (name: string) => `${name} : session arrêtée sur une erreur`,
+    permission: (name: string) => `${name} : autorisation demandée`,
+    permissionBody: (tool: string) => `Claude veut utiliser ${tool}.`,
+    question: (name: string) => `${name} : Claude te pose une question`,
+    open: "Ouvrir",
+  },
   header: {
     picker: "Session affichée (le menu permet de chercher)",
     terminalTag: "terminal",
@@ -185,6 +194,15 @@ const en: Strings = {
       error: "error",
     },
     tooltip: (cwd) => `${cwd !== null ? `${cwd}\n` : ""}Click to open, drag to move`,
+  },
+  notify: {
+    done: (name) => `${name}: Claude is done`,
+    doneBody: "Open noko to see the answer and the changes.",
+    error: (name) => `${name}: session stopped on an error`,
+    permission: (name) => `${name}: approval needed`,
+    permissionBody: (tool) => `Claude wants to use ${tool}.`,
+    question: (name) => `${name}: Claude is asking you a question`,
+    open: "Open",
   },
   header: {
     picker: "Shown session (the menu is searchable)",
