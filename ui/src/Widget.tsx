@@ -1,6 +1,7 @@
 // Fenêtre layer-shell en bas à gauche : une pastille qui s'ouvre en petite carte.
 // Tout texte venant de Claude est affiché en texte brut (jamais de balisage Pango).
 
+import Gdk from "gi://Gdk?version=4.0";
 import Gtk from "gi://Gtk?version=4.0";
 import LayerShell from "gi://Gtk4LayerShell?version=1.0";
 import Pango from "gi://Pango?version=1.0";
@@ -17,7 +18,8 @@ import { claimKeyboardOnClick, releaseKeyboard, releaseKeyboardWhenDone } from "
 import { shortenPath } from "./paths.ts";
 import { PermissionCard } from "./PermissionCard.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
-import { applyPlacement, corner, makeDraggable } from "./placement.ts";
+import { cardHeight, cardSize, cardWidth, resizeRoom } from "./card-size.ts";
+import { applyPlacement, corner, interacting, makeDraggable, makeResizable } from "./placement.ts";
 import { config } from "./settings.ts";
 import { setMotion, Spring, type SpringConfig } from "./spring.ts";
 import {
@@ -34,10 +36,6 @@ import {
   transcripts,
   type Entry,
 } from "./store.ts";
-
-/** Taille de la carte ouverte (config.toml, section [panel]). */
-const cardWidth = config((c) => c.panel.width);
-const cardHeight = config((c) => c.panel.height);
 
 /**
  * La carte a été ouverte (ou touchée) par l'utilisateur : un clic à l'extérieur la
@@ -271,6 +269,9 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
         click.connect("pressed", () => setEngaged(true));
         self.add_controller(click);
         acceptImageDrops(self);
+        // Super + clic droit glissé : redimensionner, comme une fenêtre de Hyprland
+        // (si Hyprland laisse passer ce clic ; sinon, la poignée du coin libre).
+        makeResizable(self, 3, Gdk.ModifierType.SUPER_MASK);
       }}
     >
       <Gtk.Box class="header" spacing={6}>
@@ -402,19 +403,45 @@ function animateMorph(win: Gtk.Window, shell: Gtk.Widget, spacer: Gtk.Widget, ca
   const width = new Spring(initial.w, CLOSE_SPRING);
   const height = new Spring(initial.h, CLOSE_SPRING);
 
-  /** Seule la partie visible capte la souris ; le reste laisse passer les clics. */
+  /**
+   * Seule la partie visible capte la souris ; le reste laisse passer les clics. Pendant un
+   * glissement ou un redimensionnement, toute la fenêtre (le compositeur borne la zone à la
+   * surface) : la forme y change de place, et le pointeur ne doit jamais sortir de la zone.
+   */
   const updateInputRegion = () => {
     const surface = win.get_surface();
-    const [ok, bounds] = (expanded.peek() ? card : pill).compute_bounds(win);
-    if (surface === null || !ok) return;
+    if (surface === null) return;
     const region = new cairo.Region();
-    region.unionRectangle({
-      x: Math.floor(bounds.get_x()),
-      y: Math.floor(bounds.get_y()),
-      width: Math.ceil(bounds.get_width()),
-      height: Math.ceil(bounds.get_height()),
-    });
+    if (interacting.peek()) {
+      region.unionRectangle({ x: 0, y: 0, width: 16384, height: 16384 });
+    } else {
+      const [ok, bounds] = (expanded.peek() ? card : pill).compute_bounds(win);
+      if (!ok) return;
+      region.unionRectangle({
+        x: Math.floor(bounds.get_x()),
+        y: Math.floor(bounds.get_y()),
+        width: Math.ceil(bounds.get_width()),
+        height: Math.ceil(bounds.get_height()),
+      });
+    }
     surface.set_input_region(region);
+  };
+
+  /**
+   * Zone cliquable recalculée à l'image suivante. Les rappels d'image passent avant la mise
+   * en page : un calcul immédiat verrait encore l'ancienne place de la pastille (et les clics
+   * passeraient à travers elle, à sa nouvelle place).
+   */
+  const updateInputRegionAfterLayout = () => {
+    let waited = false;
+    shell.add_tick_callback(() => {
+      if (!waited) {
+        waited = true;
+        return true;
+      }
+      updateInputRegion();
+      return false;
+    });
   };
 
   const render = () => {
@@ -441,7 +468,7 @@ function animateMorph(win: Gtk.Window, shell: Gtk.Widget, spacer: Gtk.Widget, ca
       render();
       if (width.settled() && height.settled()) {
         tick = 0;
-        updateInputRegion();
+        updateInputRegionAfterLayout();
         return false;
       }
       return true;
@@ -456,7 +483,10 @@ function animateMorph(win: Gtk.Window, shell: Gtk.Widget, spacer: Gtk.Widget, ca
     height.setTarget(t.h, config);
     card.canTarget = open;
     pill.canTarget = !open;
+    // Tout de suite (passage pastille ↔ carte), puis une fois la mise en page faite (la
+    // pastille a pu changer de largeur).
     updateInputRegion();
+    updateInputRegionAfterLayout();
     run();
   };
 
@@ -465,20 +495,42 @@ function animateMorph(win: Gtk.Window, shell: Gtk.Widget, spacer: Gtk.Widget, ca
   setMotion(config.peek().animation.speed, config.peek().animation.enabled);
   render();
   expanded.subscribe(retarget);
-  // Taille de la carte modifiée dans la config : la forme suit.
   config.subscribe(() => {
     const { animation } = config.peek();
     setMotion(animation.speed, animation.enabled);
-    retarget();
+  });
+  // Taille de la carte modifiée (config, ou à la souris) : la forme suit. Pendant un
+  // redimensionnement, elle colle au curseur, sans ressort.
+  cardSize.subscribe(() => {
+    if (resizeRoom.peek() === null || !expanded.peek()) {
+      retarget();
+      return;
+    }
+    width.jump(cardWidth.peek());
+    height.jump(cardHeight.peek());
+    render();
+  });
+  // Fin d'un redimensionnement : la fenêtre reprend la taille de la carte.
+  resizeRoom.subscribe(updateInputRegionAfterLayout);
+  interacting.subscribe(() => {
+    if (interacting.peek()) updateInputRegion();
+    else updateInputRegionAfterLayout();
   });
   // Texte de la pastille modifié : la forme suit sa nouvelle largeur, en douceur.
   pillState.subscribe(() => {
     if (!expanded.peek()) retarget();
   });
-  // Coin d'accroche modifié (déplacement) : la zone cliquable suit, une fois placée.
-  corner.subscribe(() => shell.add_tick_callback(() => (updateInputRegion(), false)));
+  // Coin d'accroche modifié (déplacement) : la forme change de coin dans la fenêtre. Un
+  // changement d'alignement ne recalcule pas la place des éléments superposés (Gtk.Overlay) :
+  // sans ce recalcul forcé, la pastille resterait dessinée à l'ancien coin. Puis la zone
+  // cliquable suit, une fois placée.
+  corner.subscribe(() => {
+    win.get_child()?.queue_resize();
+    shell.queue_resize();
+    updateInputRegionAfterLayout();
+  });
   // Première zone cliquable, une fois la fenêtre affichée.
-  win.connect("map", () => shell.add_tick_callback(() => (updateInputRegion(), false)));
+  win.connect("map", updateInputRegionAfterLayout);
 }
 
 export function Widget({ app }: { app: Gtk.Application }) {
@@ -489,6 +541,13 @@ export function Widget({ app }: { app: Gtk.Application }) {
   // Tout part du coin d'accroche : la forme y reste collée et grandit vers le centre.
   const halign = corner((c) => (c.horizontal === "left" ? Gtk.Align.START : Gtk.Align.END));
   const valign = corner((c) => (c.vertical === "top" ? Gtk.Align.START : Gtk.Align.END));
+  // Poignée de redimensionnement : dans le coin libre, à l'opposé du coin d'accroche.
+  const gripClass = corner(
+    (c) => `resize-grip ${c.vertical === "top" ? "bottom" : "top"} ${c.horizontal === "left" ? "right" : "left"}`,
+  );
+  // Pendant un redimensionnement, la fenêtre prend toute la place (voir makeResizable).
+  const windowWidth = createComputed(() => resizeRoom()?.w ?? cardWidth());
+  const windowHeight = createComputed(() => resizeRoom()?.h ?? cardHeight());
 
   return (
     <Gtk.ApplicationWindow
@@ -504,7 +563,7 @@ export function Widget({ app }: { app: Gtk.Application }) {
     >
       <Gtk.Overlay class="root">
         {/* Taille fixe de la fenêtre : celle de la carte ouverte. */}
-        <Gtk.Box class="sizer" widthRequest={cardWidth} heightRequest={cardHeight} />
+        <Gtk.Box class="sizer" widthRequest={windowWidth} heightRequest={windowHeight} />
         <Gtk.Overlay
           $type="overlay"
           class={pillState((s) => `shell ${s.cls}`)}
@@ -521,6 +580,24 @@ export function Widget({ app }: { app: Gtk.Application }) {
           <Gtk.Box $type="overlay" halign={halign} valign={valign}>
             <Pill onCreated={(p) => (pill = p)} />
           </Gtk.Box>
+          <Gtk.Box
+            $type="overlay"
+            class={gripClass}
+            halign={halign((a) => (a === Gtk.Align.START ? Gtk.Align.END : Gtk.Align.START))}
+            valign={valign((a) => (a === Gtk.Align.START ? Gtk.Align.END : Gtk.Align.START))}
+            visible={expanded}
+            $={(self) => {
+              makeResizable(self, 1, null);
+              const cursor = () => {
+                const c = corner.peek();
+                // Coin libre en haut à droite ou en bas à gauche : diagonale « / ».
+                const slash = (c.vertical === "bottom") === (c.horizontal === "left");
+                self.set_cursor(Gdk.Cursor.new_from_name(slash ? "nesw-resize" : "nwse-resize", null));
+              };
+              cursor();
+              corner.subscribe(cursor);
+            }}
+          />
         </Gtk.Overlay>
       </Gtk.Overlay>
     </Gtk.ApplicationWindow>

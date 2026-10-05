@@ -58,6 +58,37 @@ window.noko-catcher {
   border-color: var(--noko-accent);
 }
 
+/* Poignée de redimensionnement, dans le coin libre de la carte : un équerre discret. */
+.resize-grip {
+  min-width: 10px;
+  min-height: 10px;
+  margin: 3px;
+  border: 0 solid var(--noko-muted);
+  opacity: 0.45;
+  transition: opacity 150ms var(--noko-ease);
+}
+
+.resize-grip:hover {
+  opacity: 1;
+  border-color: var(--noko-accent);
+}
+
+.resize-grip.top {
+  border-top-width: 2px;
+}
+
+.resize-grip.bottom {
+  border-bottom-width: 2px;
+}
+
+.resize-grip.left {
+  border-left-width: 2px;
+}
+
+.resize-grip.right {
+  border-right-width: 2px;
+}
+
 /* --- Pastille ------------------------------------------------------------- */
 
 .pill {

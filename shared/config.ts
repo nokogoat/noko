@@ -45,8 +45,8 @@ export const ConfigSchema = z.object({
     corner: Corner.catch("bottom-left"),
     margin_x: int(0, 4000, 6),
     margin_y: int(0, 4000, 6),
-    width: int(280, 1200, 600),
-    height: int(240, 1600, 380),
+    width: int(CARD_SIZE.width.min, CARD_SIZE.width.max, CARD_SIZE.width.default),
+    height: int(CARD_SIZE.height.min, CARD_SIZE.height.max, CARD_SIZE.height.default),
   }),
   theme: section({
     /** Thème intégré ou fichier ~/.config/noko/themes/<name>.toml. */

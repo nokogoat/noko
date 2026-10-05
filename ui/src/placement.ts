@@ -9,7 +9,8 @@ import LayerShell from "gi://Gtk4LayerShell?version=1.0";
 import GLib from "gi://GLib?version=2.0";
 import { createState } from "gnim";
 import { z } from "zod";
-import type { CornerName } from "../../shared/config.ts";
+import { CARD_SIZE, type CornerName } from "../../shared/config.ts";
+import { cardSize, clampSize, saveCardSize, setCardSize, setResizeRoom, type Size } from "./card-size.ts";
 import { readText, STATE_DIR, writeText } from "./files.ts";
 import { cursorPosition, hyprlandAvailable } from "./hyprland.ts";
 import { config } from "./settings.ts";
@@ -19,6 +20,8 @@ export interface Corner {
   horizontal: "left" | "right";
 }
 
+/** Marge de la forme dans la fenêtre (`.shell` et `.sizer` dans style.css), de chaque côté. */
+const SHELL_MARGIN = 6;
 /** En deçà (en pixels), un glissement est un simple clic. */
 const DRAG_THRESHOLD = 4;
 /** Dernière position choisie à la souris (prime sur celle de la config). */
@@ -55,6 +58,11 @@ function savePosition(c: Corner, x: number, y: number): void {
 }
 
 export const [corner, setCorner] = createState<Corner>({ vertical: "bottom", horizontal: "left" });
+/**
+ * Glissement ou redimensionnement en cours : la forme bouge dans la fenêtre, alors toute
+ * la fenêtre capte la souris (voir Widget.tsx), pour que le pointeur n'en sorte jamais.
+ */
+export const [interacting, setInteracting] = createState(false);
 /** Distance de la fenêtre aux deux bords d'accroche. */
 let margins = { x: 6, y: 6 };
 
@@ -193,6 +201,7 @@ export function makeDraggable(handle: Gtk.Widget, onClick: () => void): void {
     if (!moved) {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       moved = true;
+      setInteracting(true);
     }
     // Sans Hyprland, la poignée ne bouge qu'au lâcher (décalage exact, fenêtre immobile).
     if (hyprlandAvailable()) followCursor();
@@ -205,9 +214,102 @@ export function makeDraggable(handle: Gtk.Widget, onClick: () => void): void {
       return;
     }
     if (!hyprlandAvailable()) placeHandle(start.x + dx, start.y + dy);
+    setInteracting(false);
     savePosition(corner.peek(), margins.x, margins.y);
   });
 
   handle.add_controller(drag);
   handle.set_cursor(Gdk.Cursor.new_from_name("grab", null));
+}
+
+/**
+ * Redimensionne la carte en glissant `handle` avec le bouton `button` (1 = gauche,
+ * 3 = droit), et seulement avec la touche `modifier` enfoncée si elle est donnée. Le coin
+ * d'accroche ne bouge pas : la carte grandit vers le centre de l'écran. La taille est
+ * mémorisée au lâcher.
+ *
+ * Avec Hyprland, la carte suit le curseur (position lue dans sa socket) et la fenêtre prend
+ * d'emblée toute la place disponible, pour ne pas changer de taille à chaque mouvement.
+ * Sans Hyprland, la nouvelle taille s'applique au lâcher.
+ */
+export function makeResizable(handle: Gtk.Widget, button: number, modifier: Gdk.ModifierType | null): void {
+  const drag = new Gtk.GestureDrag();
+  drag.set_button(button);
+  // Avec une touche : le geste passe avant les widgets de la carte (sinon, ils le gardent).
+  if (modifier !== null) drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+  let start: Size = cardSize.peek();
+  let room: Size | null = null;
+  /** Curseur à l'écran au début du geste (Hyprland). */
+  let origin: { x: number; y: number } | null = null;
+  let active = false;
+  let live = false;
+  let inFlight = false;
+  let stale = false;
+
+  /** Taille pour un déplacement (dx, dy) du curseur depuis le début du geste. */
+  const sizeFor = (dx: number, dy: number): Size => {
+    const c = corner.peek();
+    return clampSize(
+      { w: start.w + (c.horizontal === "left" ? dx : -dx), h: start.h + (c.vertical === "top" ? dy : -dy) },
+      room,
+    );
+  };
+
+  const followCursor = () => {
+    if (inFlight) {
+      stale = true;
+      return;
+    }
+    inFlight = true;
+    cursorPosition((cursor) => {
+      inFlight = false;
+      if (!active || cursor === null) return;
+      if (origin === null) origin = cursor;
+      else setCardSize(sizeFor(cursor.x - origin.x, cursor.y - origin.y));
+      if (stale) {
+        stale = false;
+        followCursor();
+      }
+    });
+  };
+
+  drag.connect("drag-begin", () => {
+    if (modifier !== null && (drag.get_current_event_state() & modifier) === 0) {
+      drag.set_state(Gtk.EventSequenceState.DENIED);
+      return;
+    }
+    const root = handle.get_root();
+    const geom = root instanceof Gtk.Window ? monitorGeometry(root) : null;
+    if (geom === null) {
+      drag.set_state(Gtk.EventSequenceState.DENIED);
+      return;
+    }
+    drag.set_state(Gtk.EventSequenceState.CLAIMED);
+    setInteracting(true);
+    start = cardSize.peek();
+    // Place à l'écran : tout sauf la marge d'accroche et celles de la forme.
+    room = { w: geom.width - margins.x - 2 * SHELL_MARGIN, h: geom.height - margins.y - 2 * SHELL_MARGIN };
+    origin = null;
+    active = true;
+    live = hyprlandAvailable();
+    if (live) {
+      setResizeRoom(clampSize({ w: CARD_SIZE.width.max, h: CARD_SIZE.height.max }, room));
+      followCursor();
+    }
+  });
+
+  drag.connect("drag-update", () => {
+    if (active && live) followCursor();
+  });
+
+  drag.connect("drag-end", (_g, dx, dy) => {
+    if (!active) return;
+    active = false;
+    if (!live) setCardSize(sizeFor(dx, dy));
+    setResizeRoom(null);
+    setInteracting(false);
+    saveCardSize(cardSize.peek());
+  });
+
+  handle.add_controller(drag);
 }
