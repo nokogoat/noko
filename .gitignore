@@ -1,0 +1,50 @@
+# --- Secrets : ne jamais commiter ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+.npmrc.local
+credentials*.json
+secrets*.json
+*.secret
+*.secrets
+
+# --- Données locales (sessions, historique, sauvegardes) ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+settings.json.bak*
+*.bak
+*.orig
+
+# --- Dépendances et builds ---
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+coverage/
+.cache/
+@girs/
+
+# --- Logs ---
+*.log
+logs/
+npm-debug.log*
+
+# --- Outils ---
+strix_runs/
+.claude/settings.local.json
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
