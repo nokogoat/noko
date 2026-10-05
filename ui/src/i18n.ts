@@ -55,6 +55,11 @@ const fr = {
     tooltip: (cwd: string | null) =>
       `${cwd !== null ? `${cwd}\n` : ""}Cliquer pour ouvrir, glisser pour déplacer`,
   },
+  recap: {
+    title: (files: number, added: number, removed: number) =>
+      `${files} ${plural(files, "fichier modifié", "fichiers modifiés")} · +${added} −${removed}`,
+    tooltip: "Cliquer sur un fichier pour voir son avant/après",
+  },
   notify: {
     done: (name: string) => `${name} : Claude a fini`,
     doneBody: "Ouvre noko pour voir la réponse et les modifications.",
@@ -194,6 +199,10 @@ const en: Strings = {
       error: "error",
     },
     tooltip: (cwd) => `${cwd !== null ? `${cwd}\n` : ""}Click to open, drag to move`,
+  },
+  recap: {
+    title: (files, added, removed) => `${files} ${plural(files, "file changed", "files changed")} · +${added} −${removed}`,
+    tooltip: "Click a file to see its before/after",
   },
   notify: {
     done: (name) => `${name}: Claude is done`,

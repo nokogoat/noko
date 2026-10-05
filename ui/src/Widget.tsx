@@ -17,6 +17,7 @@ import { activityText, usageText, usageTooltip } from "./format.ts";
 import { type Strings, t } from "./i18n.ts";
 import { claimKeyboardOnClick, releaseKeyboard, releaseKeyboardWhenDone } from "./keyboard.ts";
 import { markdownView } from "./markdown-view.ts";
+import { type FileChange, type TranscriptItem, withRecaps } from "./recap.ts";
 import { shortenPath } from "./paths.ts";
 import { PermissionCard } from "./PermissionCard.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
@@ -217,6 +218,33 @@ function Message({ entry }: { entry: Entry }) {
   );
 }
 
+/** Fichiers modifiés pendant un tour : un par ligne, son avant/après au clic. */
+function Recap({ files }: { files: FileChange[] }) {
+  const added = files.reduce((n, f) => n + f.added, 0);
+  const removed = files.reduce((n, f) => n + f.removed, 0);
+  return (
+    <Gtk.Box class="recap" orientation={Gtk.Orientation.VERTICAL} spacing={2} tooltipText={t((s) => s.recap.tooltip)}>
+      <Gtk.Label class="recap-title" label={t((s) => s.recap.title(files.length, added, removed))} xalign={0} />
+      {files.map((file) => (
+        <Gtk.Expander class="recap-file">
+          <Gtk.Label
+            $type="label"
+            label={`${shortenPath(file.path)}  +${file.added} −${file.removed}`}
+            useMarkup={false}
+            ellipsize={Pango.EllipsizeMode.START}
+            xalign={0}
+          />
+          <Gtk.Box orientation={Gtk.Orientation.VERTICAL} spacing={8}>
+            {file.diffs.map((diff) => (
+              <DiffView diff={diff} header={false} />
+            ))}
+          </Gtk.Box>
+        </Gtk.Expander>
+      ))}
+    </Gtk.Box>
+  );
+}
+
 /** Mise en page de la réponse en cours refaite au plus toutes les 120 ms (pas à chaque fragment). */
 const STREAM_RENDER_MS = 120;
 
@@ -271,11 +299,28 @@ function Conversation() {
   });
   const entries = transcript((t) => t?.entries ?? []);
   const streaming = transcript((t) => t?.streaming ?? "");
+  const working = selectedSession((s) => s?.status === "running" || s?.status === "starting");
+
+  // Un même message (ou récap) garde le même élément d'un calcul à l'autre : For ne recrée
+  // alors que les widgets nouveaux (sinon toute la conversation, et la sélection en cours).
+  const entryItems = new WeakMap<Entry, TranscriptItem>();
+  const recapItems = new Map<string, TranscriptItem>();
+  const items = createComputed(() =>
+    withRecaps(entries(), working()).map((item) => {
+      const cache = item.kind === "entry" ? entryItems.get(item.entry) : recapItems.get(`${selectedId()}:${item.key}`);
+      if (cache !== undefined) return cache;
+      if (item.kind === "entry") entryItems.set(item.entry, item);
+      else recapItems.set(`${selectedId()}:${item.key}`, item);
+      return item;
+    }),
+  );
 
   return (
     <Gtk.ScrolledWindow class="transcript-scroll" vexpand hscrollbarPolicy={Gtk.PolicyType.NEVER} $={stickToBottom}>
       <Gtk.Box class="transcript" orientation={Gtk.Orientation.VERTICAL} spacing={6} valign={Gtk.Align.START}>
-        <For each={entries}>{(entry) => <Message entry={entry} />}</For>
+        <For each={items}>
+          {(item) => (item.kind === "entry" ? <Message entry={item.entry} /> : <Recap files={item.files} />)}
+        </For>
         <StreamingMessage text={streaming} />
       </Gtk.Box>
     </Gtk.ScrolledWindow>

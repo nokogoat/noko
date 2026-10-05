@@ -7,19 +7,13 @@ import Pango from "gi://Pango?version=1.0";
 import type { DiffHunk, FileDiff } from "../../shared/protocol.ts";
 import { t } from "./i18n.ts";
 import { shortenPath } from "./paths.ts";
+import { diffCounts } from "./recap.ts";
 
 const LINE_CLASS: Record<string, string> = { "+": "diff-add", "-": "diff-del", " ": "diff-ctx" };
 
 /** « +3 −1 » : lignes ajoutées et retirées. */
 export function diffStats(diff: FileDiff): string {
-  let added = 0;
-  let removed = 0;
-  for (const hunk of diff.hunks) {
-    for (const line of hunk.lines) {
-      if (line.startsWith("+")) added++;
-      else if (line.startsWith("-")) removed++;
-    }
-  }
+  const { added, removed } = diffCounts(diff);
   return `+${added} −${removed}${diff.truncated ? ` ${t.peek().diff.incomplete}` : ""}`;
 }
 

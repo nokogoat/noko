@@ -201,6 +201,28 @@ window.noko-catcher {
   color: var(--noko-muted);
 }
 
+/* --- Récap des fichiers modifiés par tour (recap.ts) --------------------- */
+
+.recap {
+  background: var(--noko-bg);
+  border: 1px solid var(--noko-border);
+  border-left: 3px solid var(--noko-accent);
+  border-radius: var(--noko-radius-md);
+  padding: 8px 10px;
+}
+
+.recap-title {
+  font-weight: bolder;
+  font-size: 0.9em;
+  color: var(--noko-accent);
+  margin-bottom: 2px;
+}
+
+.recap-file {
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
 /* --- Réponses de Claude mises en page (markdown-view.ts) ------------------ */
 
 .message.assistant {
