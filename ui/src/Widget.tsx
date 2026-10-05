@@ -153,7 +153,16 @@ function SessionPicker() {
 /** Appel d'outil qui modifie un fichier : résumé, et l'avant/après au clic. */
 function ToolDiff({ entry, diff }: { entry: Entry; diff: FileDiff }) {
   return (
-    <Gtk.Expander class="message tool" label={`${entry.text}  ${diffStats(diff)}`}>
+    <Gtk.Expander class="message tool">
+      {/* Libellé à soi : celui de l'Expander ne revient pas à la ligne et élargirait la carte. */}
+      <Gtk.Label
+        $type="label"
+        label={`${entry.text}  ${diffStats(diff)}`}
+        useMarkup={false}
+        wrap
+        wrapMode={Pango.WrapMode.WORD_CHAR}
+        xalign={0}
+      />
       <DiffView diff={diff} header={false} />
     </Gtk.Expander>
   );
