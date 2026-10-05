@@ -8,12 +8,13 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type {
-  ImageAttachment,
-  Question,
-  QuestionAnswers,
-  SessionActivity,
-  SessionUsage,
+import {
+  MANAGED_ENV,
+  type ImageAttachment,
+  type Question,
+  type QuestionAnswers,
+  type SessionActivity,
+  type SessionUsage,
 } from "../../shared/protocol.ts";
 import { assistantEntries } from "./history.ts";
 import type { Decision, PermissionAsk } from "./permissions.ts";
@@ -191,6 +192,9 @@ export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }
         settingSources,
         systemPrompt: { type: "preset", preset: "claude_code" },
         includePartialMessages: true,
+        // Marque les processus lancés par noko : son hook terminal les ignore (ils passent
+        // déjà par canUseTool, sans quoi chaque demande apparaîtrait deux fois).
+        env: { ...process.env, [MANAGED_ENV]: "1" },
         ...(resume !== undefined ? { resume } : {}),
       },
     });

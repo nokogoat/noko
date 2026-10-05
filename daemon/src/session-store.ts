@@ -21,6 +21,7 @@ const Row = z.object({
   name: z.string(),
   cwd: z.string(),
   last_activity: z.number(),
+  source: z.string(),
 });
 
 export class SessionStore {
@@ -43,22 +44,28 @@ export class SessionStore {
         last_activity INTEGER NOT NULL
       ) STRICT;
     `);
+    // Bases créées avant le suivi des sessions terminal : colonne ajoutée.
+    const columns = this.db.prepare("SELECT name FROM pragma_table_info('sessions')").all();
+    if (!columns.some((c) => c.name === "source")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'noko'");
+    }
     this.upsertStmt = this.db.prepare(`
-      INSERT INTO sessions (id, claude_session_id, name, cwd, last_activity)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, claude_session_id, name, cwd, last_activity, source)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (id) DO UPDATE SET
         claude_session_id = excluded.claude_session_id,
         name = excluded.name,
         cwd = excluded.cwd,
-        last_activity = excluded.last_activity
+        last_activity = excluded.last_activity,
+        source = excluded.source
     `);
     this.allStmt = this.db.prepare(
-      "SELECT id, claude_session_id, name, cwd, last_activity FROM sessions ORDER BY last_activity DESC",
+      "SELECT id, claude_session_id, name, cwd, last_activity, source FROM sessions ORDER BY last_activity DESC",
     );
   }
 
   save(info: SessionInfo): void {
-    this.upsertStmt.run(info.id, info.claudeSessionId, info.name, info.cwd, info.lastActivity);
+    this.upsertStmt.run(info.id, info.claudeSessionId, info.name, info.cwd, info.lastActivity, info.source);
   }
 
   /** Sessions enregistrées, toutes marquées « stopped » (aucune ne tourne au démarrage). */
@@ -71,6 +78,7 @@ export class SessionStore {
         id: row.data.id,
         claudeSessionId: row.data.claude_session_id,
         name: row.data.name,
+        source: row.data.source,
         cwd: row.data.cwd,
         status: "stopped",
         lastActivity: row.data.last_activity,

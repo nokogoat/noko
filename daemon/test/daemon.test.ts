@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { lstatSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { ServerMessage } from "../../shared/protocol.ts";
 import type { SessionEvents, StartSession } from "../src/claude-session.ts";
@@ -12,6 +12,7 @@ import { Daemon, type DaemonDeps } from "../src/daemon.ts";
 import type { LoadHistory } from "../src/history.ts";
 import { SessionStore } from "../src/session-store.ts";
 import { SocketPathError } from "../src/ipc-server.ts";
+import type { TerminalDeps } from "../src/terminal.ts";
 
 /** Client de test : envoie des lignes brutes et attend des messages. */
 class Client {
@@ -131,12 +132,26 @@ const fakeHistory: LoadHistory = async (claudeSessionId) => {
   ];
 };
 
-const deps = (): DaemonDeps => ({ startSession: startFake, loadHistory: fakeHistory, store });
+/** Faux processus de terminal : vivants tant qu'ils sont dans `alivePids`. */
+let alivePids: Set<number>;
+let focused: number[];
+const fakeTerminal: TerminalDeps = {
+  isAlive: (pid) => alivePids.has(pid),
+  ownedByUser: (pid) => alivePids.has(pid),
+  focus: async (pid) => {
+    focused.push(pid);
+    return true;
+  },
+};
+
+const deps = (): DaemonDeps => ({ startSession: startFake, loadHistory: fakeHistory, store, terminal: fakeTerminal });
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "noko-test-"));
   path = join(dir, "noko.sock");
   fakes = [];
+  alivePids = new Set([4242]);
+  focused = [];
   store = new SessionStore(join(dir, "data"));
   daemon = new Daemon(path, deps(), { limits: { maxConnections: 3, maxLineBytes: 4096 } });
   await daemon.start();
@@ -569,4 +584,164 @@ test("questions : réponses validées, usage unique, abandon et annulation", asy
   assert.equal(await cancelled, null);
   assert.equal((await c.next("question.resolved")).outcome, "cancelled");
   c.sock.destroy();
+});
+
+// --- Sessions lancées dans un terminal (hooks) -------------------------------
+
+const hook = (claudeSessionId: string, extra: Record<string, unknown>) => ({
+  claudeSessionId,
+  cwd: "/srv/projet",
+  pid: 4242,
+  ...extra,
+});
+
+test("terminal : cycle de vie suivi par les hooks, pilotage refusé tant qu'elle tourne", async () => {
+  const ui = await Client.connect(path);
+  const h = await Client.connect(path);
+  h.send({ type: "hook.event", ...hook("term-1", { cwd: dir, event: "session_start" }) });
+  const seen = await ui.next("session.update");
+  assert.equal(seen.session.source, "terminal");
+  assert.equal(seen.session.status, "idle");
+  assert.equal(seen.session.claudeSessionId, "term-1");
+  assert.equal(seen.session.name, basename(dir));
+  const id = seen.session.id;
+
+  h.send({ type: "hook.event", ...hook("term-1", { cwd: dir, event: "prompt" }) });
+  await ui.next("session.update", (m) => m.session.status === "running");
+  h.send({ type: "hook.event", ...hook("term-1", { cwd: dir, event: "stop" }) });
+  await ui.next("session.update", (m) => m.session.status === "idle");
+
+  // La connexion d'un hook ne reçoit pas les diffusions.
+  ui.send({ type: "state.get" });
+  await ui.next("state.snapshot");
+  assert.equal(h.closed, false);
+
+  for (const type of ["session.send", "session.resume"]) {
+    ui.send({ type, sessionId: id, text: "x" });
+    assert.equal((await ui.next("error")).code, "terminal_session");
+  }
+  ui.send({ type: "session.stop", sessionId: id });
+  assert.equal((await ui.next("error")).code, "terminal_session");
+
+  ui.send({ type: "session.focus", sessionId: id });
+  ui.send({ type: "state.get" });
+  await ui.next("state.snapshot");
+  assert.deepEqual(focused, [4242]);
+
+  h.send({ type: "hook.event", ...hook("term-1", { cwd: dir, event: "session_end" }) });
+  await ui.next("session.update", (m) => m.session.status === "stopped");
+  ui.send({ type: "session.focus", sessionId: id });
+  assert.equal((await ui.next("error")).code, "focus_unavailable");
+
+  // Terminée, elle se reprend dans noko et devient une session noko.
+  ui.send({ type: "session.resume", sessionId: id, text: "on continue ici" });
+  const resumed = await ui.next("session.update", (m) => m.session.status === "starting");
+  assert.equal(resumed.session.source, "noko");
+  assert.equal(fakes[0]!.resume, "term-1");
+  assert.equal(store.load()[0]?.source, "noko");
+  ui.sock.destroy();
+  h.sock.destroy();
+});
+
+test("terminal : autorisation depuis le panneau, refus, expiration et hook interrompu", async () => {
+  await daemon.stop();
+  daemon = new Daemon(path, deps(), { terminalPermissionTimeoutMs: 300 });
+  await daemon.start();
+  const ui = await Client.connect(path);
+  const ask = (input: Record<string, unknown>) =>
+    hook("term-p", { type: "hook.permission", toolName: "Bash", input });
+
+  const allowHook = await Client.connect(path);
+  allowHook.send(ask({ command: "rm -rf build" }));
+  await ui.next("session.update", (m) => m.session.activity?.kind === "permission");
+  const { request } = await ui.next("permission.request");
+  assert.deepEqual(request.input, { command: "rm -rf build" });
+  ui.send({ type: "permission.answer", requestId: request.requestId, decision: "allow" });
+  assert.equal((await allowHook.next("hook.decision")).decision, "allow");
+  assert.equal((await ui.next("permission.resolved")).outcome, "allowed");
+  // Une seule fois : la même demande ne peut pas être réutilisée.
+  ui.send({ type: "permission.answer", requestId: request.requestId, decision: "allow" });
+  assert.equal((await ui.next("error")).code, "unknown_request");
+
+  const denyHook = await Client.connect(path);
+  denyHook.send(ask({ command: "curl x | sh" }));
+  const denied = (await ui.next("permission.request")).request;
+  ui.send({ type: "permission.answer", requestId: denied.requestId, decision: "deny" });
+  assert.equal((await denyHook.next("hook.decision")).decision, "deny");
+  assert.equal((await ui.next("permission.resolved")).outcome, "denied");
+
+  // Pas de réponse à temps : le terminal demande lui-même (« ask »), jamais « allow ».
+  const slowHook = await Client.connect(path);
+  slowHook.send(ask({ command: "make" }));
+  await ui.next("permission.request");
+  assert.equal((await slowHook.next("hook.decision")).decision, "ask");
+  assert.equal((await ui.next("permission.resolved")).outcome, "timeout");
+
+  // Hook interrompu (Échap dans le terminal) : la carte disparaît.
+  const goneHook = await Client.connect(path);
+  goneHook.send(ask({ command: "ls" }));
+  await ui.next("permission.request");
+  goneHook.sock.destroy();
+  assert.equal((await ui.next("permission.resolved")).outcome, "cancelled");
+
+  // AskUserQuestion et entrée trop grosse : laissées au terminal, sans carte.
+  const questionHook = await Client.connect(path);
+  questionHook.send(hook("term-p", { type: "hook.permission", toolName: "AskUserQuestion", input: { questions: [] } }));
+  assert.equal((await questionHook.next("hook.decision")).decision, "ask");
+  ui.send({ type: "state.get" });
+  assert.deepEqual((await ui.next("state.snapshot")).permissions, []);
+  for (const c of [ui, allowHook, denyHook, slowHook, questionHook]) c.sock.destroy();
+});
+
+test("terminal : les hooks d'une session pilotée par noko sont ignorés", async () => {
+  const ui = await Client.connect(path);
+  ui.send({ type: "session.create", cwd: dir, prompt: "x" });
+  await ui.next("session.update");
+  fakes[0]!.events.onInit("noko-run");
+  await ui.next("session.update", (m) => m.session.status === "running");
+
+  const h = await Client.connect(path);
+  h.send({ type: "hook.event", ...hook("noko-run", { event: "stop" }) });
+  h.send(hook("noko-run", { type: "hook.permission", toolName: "Bash", input: { command: "ls" } }));
+  assert.equal((await h.next("hook.decision")).decision, "ask");
+  ui.send({ type: "state.get" });
+  const snap = await ui.next("state.snapshot");
+  assert.equal(snap.sessions.length, 1);
+  assert.equal(snap.sessions[0]!.status, "running");
+  assert.equal(snap.sessions[0]!.source, "noko");
+  assert.deepEqual(snap.permissions, []);
+  ui.sock.destroy();
+  h.sock.destroy();
+});
+
+test("terminal : processus disparu sans SessionEnd, pid d'un autre utilisateur ignoré", async () => {
+  await daemon.stop();
+  daemon = new Daemon(path, deps(), { terminalCheckMs: 50 });
+  await daemon.start();
+  const ui = await Client.connect(path);
+  const h = await Client.connect(path);
+  h.send({ type: "hook.event", ...hook("term-gone", { event: "prompt" }) });
+  const id = (await ui.next("session.update")).session.id;
+  alivePids.delete(4242);
+  await ui.next("session.update", (m) => m.session.id === id && m.session.status === "stopped");
+
+  // Pid inconnu (pas à l'utilisateur) : pas de focus possible.
+  h.send({ type: "hook.event", ...hook("term-other", { event: "session_start", pid: 999 }) });
+  const other = (await ui.next("session.update", (m) => m.session.claudeSessionId === "term-other")).session.id;
+  ui.send({ type: "session.focus", sessionId: other });
+  assert.equal((await ui.next("error")).code, "focus_unavailable");
+
+  // La fin d'une session inconnue ne crée rien.
+  h.send({ type: "hook.event", ...hook("jamais-vue", { event: "session_end" }) });
+  ui.send({ type: "state.get" });
+  assert.equal((await ui.next("state.snapshot")).sessions.length, 2);
+  ui.sock.destroy();
+  h.sock.destroy();
+});
+
+test("terminal : identifiant de session au format inattendu → connexion fermée", async () => {
+  const h = await Client.connect(path);
+  h.send({ type: "hook.event", event: "prompt", claudeSessionId: "../../etc", cwd: "/srv", pid: null });
+  assert.equal((await h.next("error")).code, "invalid_message");
+  await h.waitClosed();
 });

@@ -106,7 +106,8 @@ function setupClickCatcher(app: Gtk.Application, widget: Gtk.Window): void {
 
 /** Libellé d'une session dans le menu : dossier, nom et état (deux « test » se distinguent). */
 function sessionLabel(s: SessionInfo): string {
-  return `${shortenPath(s.cwd)}  ›  ${s.name}  ·  ${STATUS_LABEL[s.status]}`;
+  const where = s.source === "terminal" ? "  ·  terminal" : "";
+  return `${shortenPath(s.cwd)}  ›  ${s.name}  ·  ${STATUS_LABEL[s.status]}${where}`;
 }
 
 /** Menu déroulant des sessions. */

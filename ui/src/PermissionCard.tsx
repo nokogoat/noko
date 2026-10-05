@@ -56,8 +56,14 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
     if (answerPermission(request.requestId, decision)) setAnswered(true);
   };
 
-  const sessionName = sessions.peek().find((s) => s.id === request.sessionId)?.name ?? "session";
-  const minutes = Math.max(1, Math.ceil((request.expiresAt - Date.now()) / 60_000));
+  const session = sessions.peek().find((s) => s.id === request.sessionId);
+  const sessionName = session?.name ?? "session";
+  const fromTerminal = session?.source === "terminal";
+  const remaining = request.expiresAt - Date.now();
+  // Session terminal : sans réponse, c'est le terminal qui demande (pas de refus).
+  const deadline = fromTerminal
+    ? `Sinon, le terminal demandera dans ${Math.max(1, Math.ceil(remaining / 1000))} s`
+    : `Refus automatique dans ${Math.max(1, Math.ceil(remaining / 60_000))} min`;
 
   return (
     <Gtk.Box class="permission" orientation={Gtk.Orientation.VERTICAL} spacing={6}>
@@ -70,7 +76,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
       />
       <Gtk.Label
         class="permission-meta"
-        label={`${sessionName} · ${request.toolName}`}
+        label={`${sessionName}${fromTerminal ? " (terminal)" : ""} · ${request.toolName}`}
         useMarkup={false}
         ellipsize={Pango.EllipsizeMode.END}
         xalign={0}
@@ -102,7 +108,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
       <Gtk.Box spacing={6}>
         <Gtk.Label
           class="permission-meta"
-          label={`Refus automatique dans ${minutes} min`}
+          label={deadline}
           hexpand
           xalign={0}
         />

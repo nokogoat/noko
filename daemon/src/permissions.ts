@@ -47,14 +47,18 @@ export class PendingBroker<R extends PendingBase, A, O extends string> {
    * et renvoie la demande validée, ou null si elle n'est pas représentable : la valeur de
    * repli est alors renvoyée sans rien publier.
    */
-  request(build: (requestId: string, expiresAt: number) => R | null, signal: AbortSignal): Promise<A> {
+  request(
+    build: (requestId: string, expiresAt: number) => R | null,
+    signal: AbortSignal,
+    timeoutMs: number = this.timeoutMs,
+  ): Promise<A> {
     if (signal.aborted) return Promise.resolve(this.fallback);
-    const request = build(randomUUID(), Date.now() + this.timeoutMs);
+    const request = build(randomUUID(), Date.now() + timeoutMs);
     if (request === null) return Promise.resolve(this.fallback);
 
     return new Promise<A>((resolve) => {
       const onAbort = () => this.settle(request.requestId, this.fallback, "cancelled");
-      const timer = setTimeout(() => this.settle(request.requestId, this.fallback, "timeout"), this.timeoutMs);
+      const timer = setTimeout(() => this.settle(request.requestId, this.fallback, "timeout"), timeoutMs);
       signal.addEventListener("abort", onAbort, { once: true });
       this.pending.set(request.requestId, { request, resolve, timer, onAbort, signal });
       this.events.onRequest(request);
@@ -122,17 +126,26 @@ export interface PermissionAsk {
 }
 
 export class PermissionBroker {
-  private readonly broker: PendingBroker<PermissionRequest, Decision, "allowed" | "denied">;
+  // null : pas de réponse de l'utilisateur (expiration, annulation, anomalie).
+  private readonly broker: PendingBroker<PermissionRequest, Decision | null, "allowed" | "denied">;
 
   constructor(timeoutMs: number, events: PendingEvents<PermissionRequest, PermissionOutcome>) {
-    this.broker = new PendingBroker<PermissionRequest, Decision, "allowed" | "denied">(timeoutMs, "deny", events);
+    this.broker = new PendingBroker<PermissionRequest, Decision | null, "allowed" | "denied">(timeoutMs, null, events);
   }
 
   /**
    * Publie une demande et attend la décision. Toute anomalie (entrée non
    * représentable, signal déjà annulé…) donne un refus, jamais une autorisation.
    */
-  request(sessionId: string, ask: PermissionAsk, signal: AbortSignal): Promise<Decision> {
+  async request(sessionId: string, ask: PermissionAsk, signal: AbortSignal): Promise<Decision> {
+    return (await this.requestAnswer(sessionId, ask, signal)) ?? "deny";
+  }
+
+  /**
+   * Comme `request`, mais renvoie null sans réponse explicite de l'utilisateur : une
+   * session terminal laisse alors Claude Code demander dans le terminal.
+   */
+  requestAnswer(sessionId: string, ask: PermissionAsk, signal: AbortSignal, timeoutMs?: number): Promise<Decision | null> {
     return this.broker.request((requestId, expiresAt) => {
       const parsed = PermissionRequestSchema.safeParse({
         requestId,
@@ -145,7 +158,7 @@ export class PermissionBroker {
         expiresAt,
       });
       return parsed.success ? parsed.data : null;
-    }, signal);
+    }, signal, timeoutMs);
   }
 
   /** Réponse de l'utilisateur. false si la demande n'est pas (ou plus) en attente. */

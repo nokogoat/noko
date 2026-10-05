@@ -18,6 +18,19 @@ export const MAX_IMAGE_BASE64 = 1.5 * 1024 * 1024;
 /** Nom du fichier de socket dans $XDG_RUNTIME_DIR. */
 export const SOCKET_NAME = "noko.sock";
 
+/**
+ * Variable posée dans l'environnement des sessions lancées par noko : le hook terminal
+ * les ignore (elles passent déjà par canUseTool).
+ */
+export const MANAGED_ENV = "NOKO_MANAGED";
+
+/**
+ * Attente d'une réponse dans le panneau pour une session terminal. Claude Code n'affiche
+ * son propre dialogue qu'après le hook : le terminal attend donc pendant ce délai, puis
+ * demande lui-même. Court, pour ne pas bloquer quelqu'un qui regarde son terminal.
+ */
+export const TERMINAL_PERMISSION_TIMEOUT_MS = 60 * 1000;
+
 const SessionId = z.uuid();
 
 const AbsolutePath = z
@@ -41,6 +54,13 @@ export type ImageAttachment = z.infer<typeof ImageAttachment>;
 const Images = z.array(ImageAttachment).max(MAX_IMAGES);
 
 const SessionName = z.string().min(1).max(200);
+
+/** Identifiant de session Claude Code : sert à retrouver son transcript, donc format strict. */
+const ClaudeSessionId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+
+/** Session lancée par noko (SDK) ou suivie dans un terminal (hooks). */
+export const SessionSource = z.enum(["noko", "terminal"]);
+export type SessionSource = z.infer<typeof SessionSource>;
 
 export const SessionStatus = z.enum([
   "starting", // session lancée, en attente du SDK
@@ -80,8 +100,9 @@ export type SessionUsage = z.infer<typeof SessionUsage>;
 export const SessionInfo = z.strictObject({
   id: SessionId,
   /** Identifiant de session Claude Code (connu après l'init du SDK). */
-  claudeSessionId: z.string().min(1).max(128).nullable(),
+  claudeSessionId: ClaudeSessionId.nullable(),
   name: SessionName,
+  source: SessionSource,
   cwd: AbsolutePath,
   status: SessionStatus,
   /** Dernière activité, en millisecondes depuis l'époque Unix. */
@@ -159,6 +180,28 @@ export type QuestionOutcome = z.infer<typeof QuestionOutcome>;
 export const QuestionAnswers = z.record(z.string().min(1).max(2000), z.string().min(1).max(4000));
 export type QuestionAnswers = z.infer<typeof QuestionAnswers>;
 
+/** Contexte commun aux messages des hooks (session lancée dans un terminal). */
+const HookContext = {
+  claudeSessionId: ClaudeSessionId,
+  cwd: AbsolutePath,
+  /** Processus `claude` (parent du hook), pour le focus de son terminal ; null si inconnu. */
+  pid: z.number().int().min(2).max(4_194_304).nullable(),
+};
+
+/** Événements des hooks, traduits depuis ceux de Claude Code. */
+export const HookEvent = z.enum([
+  "session_start", // SessionStart
+  "prompt", // UserPromptSubmit : Claude se met au travail
+  "stop", // Stop, StopFailure : tour terminé
+  "idle", // Notification idle_prompt : en attente de l'utilisateur
+  "session_end", // SessionEnd
+]);
+export type HookEvent = z.infer<typeof HookEvent>;
+
+/** Réponse à un hook PermissionRequest ; « ask » : laisser le terminal demander. */
+export const HookDecision = z.enum(["allow", "deny", "ask"]);
+export type HookDecision = z.infer<typeof HookDecision>;
+
 // --- UI → daemon -----------------------------------------------------------
 
 export const ClientMessage = z.discriminatedUnion("type", [
@@ -209,6 +252,25 @@ export const ClientMessage = z.discriminatedUnion("type", [
     requestId: z.uuid(),
     decision: z.enum(["allow", "deny"]),
   }),
+  /** Met au premier plan la fenêtre du terminal d'une session terminal. */
+  z.strictObject({
+    type: z.literal("session.focus"),
+    sessionId: SessionId,
+  }),
+  // --- hook → daemon (sessions lancées dans un terminal) ---
+  /** Événement d'une session terminal ; aucune réponse. */
+  z.strictObject({
+    type: z.literal("hook.event"),
+    event: HookEvent,
+    ...HookContext,
+  }),
+  /** Demande d'autorisation d'une session terminal ; réponse : `hook.decision`. */
+  z.strictObject({
+    type: z.literal("hook.permission"),
+    ...HookContext,
+    toolName: z.string().min(1).max(256),
+    input: z.record(z.string(), z.json()),
+  }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -223,6 +285,8 @@ export const ErrorCode = z.enum([
   "history_unavailable",
   "unknown_request", // demande d'autorisation inconnue, expirée ou déjà traitée
   "invalid_answers", // réponses ne correspondant pas aux questions posées
+  "terminal_session", // session en cours dans un terminal : à piloter depuis le terminal
+  "focus_unavailable", // fenêtre du terminal introuvable
   "internal",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
@@ -290,6 +354,11 @@ export const ServerMessage = z.discriminatedUnion("type", [
     requestId: z.uuid(),
     sessionId: SessionId,
     outcome: QuestionOutcome,
+  }),
+  /** Décision pour un hook PermissionRequest, envoyée à sa seule connexion. */
+  z.strictObject({
+    type: z.literal("hook.decision"),
+    decision: HookDecision,
   }),
   z.strictObject({
     type: z.literal("error"),

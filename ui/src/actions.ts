@@ -83,6 +83,17 @@ export function stopSession(session: SessionInfo): void {
   client.send({ type: "session.stop", sessionId: session.id });
 }
 
+/** Session en cours dans un terminal : elle se pilote depuis le terminal. */
+export function isLiveTerminal(session: SessionInfo): boolean {
+  return session.source === "terminal" && !isClosed(session);
+}
+
+/** Met au premier plan la fenêtre du terminal (le daemon s'en charge). */
+export function focusSession(session: SessionInfo): void {
+  setLastError(null);
+  client.send({ type: "session.focus", sessionId: session.id });
+}
+
 /** Charge l'historique de la session sélectionnée, une fois par connexion. */
 export function loadSelectedHistory(): void {
   const id = selectedId.peek();

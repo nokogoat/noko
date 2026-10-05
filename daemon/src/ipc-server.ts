@@ -18,10 +18,14 @@ export class SocketPathError extends Error {
 export interface Connection {
   readonly id: number;
   send(msg: ServerMessage): void;
+  /** Ne plus recevoir les diffusions (connexion d'un hook, qui n'attend qu'une réponse). */
+  mute(): void;
 }
 
 export interface IpcHandlers {
   onMessage(conn: Connection, msg: ClientMessage): void | Promise<void>;
+  /** Connexion fermée (par le client ou par le daemon). */
+  onClose?(conn: Connection): void;
 }
 
 export interface IpcLimits {
@@ -55,6 +59,7 @@ function serialize(msg: ServerMessage, maxLineBytes: number): string | null {
 class ClientConnection implements Connection {
   readonly id: number;
   closed = false;
+  muted = false;
   private readonly sock: net.Socket;
   private readonly limits: IpcLimits;
 
@@ -67,6 +72,10 @@ class ClientConnection implements Connection {
   send(msg: ServerMessage): void {
     const line = serialize(msg, this.limits.maxLineBytes);
     if (line !== null) this.write(line);
+  }
+
+  mute(): void {
+    this.muted = true;
   }
 
   write(line: string): void {
@@ -153,7 +162,7 @@ export class IpcServer {
   broadcast(msg: ServerMessage): void {
     const line = serialize(msg, this.limits.maxLineBytes);
     if (line === null) return;
-    for (const conn of this.connections) conn.write(line);
+    for (const conn of this.connections) if (!conn.muted) conn.write(line);
   }
 
   /**
@@ -208,6 +217,7 @@ export class IpcServer {
       conn.closed = true;
       this.connections.delete(conn);
       log("ipc.disconnected", { conn: conn.id });
+      this.handlers.onClose?.(conn);
     });
   }
 

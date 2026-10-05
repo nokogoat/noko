@@ -199,6 +199,10 @@ window.noko-catcher {
   color: var(--noko-error);
 }
 
+.composer button.terminal {
+  color: var(--noko-accent);
+}
+
 .notice {
   color: var(--noko-error);
   font-size: 0.85em;

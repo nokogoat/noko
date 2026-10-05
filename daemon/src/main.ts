@@ -6,6 +6,7 @@ import { loadHistory } from "./history.ts";
 import { errorFields, log } from "./log.ts";
 import { resolveSocketPath } from "./runtime-dir.ts";
 import { dataDir, SessionStore } from "./session-store.ts";
+import { terminalDeps } from "./terminal.ts";
 
 function fail(err: unknown): never {
   // Message sans donnée sensible : il décrit seulement la vérification qui a échoué.
@@ -29,7 +30,12 @@ async function main(): Promise<void> {
     process.umask(previousUmask);
   }
 
-  const daemon = new Daemon(socketPath, { startSession: startClaudeSession, loadHistory, store });
+  const daemon = new Daemon(socketPath, {
+    startSession: startClaudeSession,
+    loadHistory,
+    store,
+    terminal: terminalDeps,
+  });
   try {
     await daemon.start();
   } catch (err) {

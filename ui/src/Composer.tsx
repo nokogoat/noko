@@ -6,7 +6,7 @@ import Gio from "gi://Gio?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
 import { createComputed, createState, For } from "gnim";
 import type { ErrorCode } from "../../shared/protocol.ts";
-import { createSession, isClosed, sendToSession, stopSession } from "./actions.ts";
+import { createSession, focusSession, isClosed, isLiveTerminal, sendToSession, stopSession } from "./actions.ts";
 import {
   attachmentError,
   attachments,
@@ -27,6 +27,8 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   history_unavailable: "Historique indisponible.",
   unknown_request: "Demande expirée ou déjà traitée.",
   invalid_answers: "Réponds à toutes les questions.",
+  terminal_session: "Session en cours dans un terminal : réponds-y depuis le terminal.",
+  focus_unavailable: "Fenêtre du terminal introuvable.",
   internal: "Erreur interne du daemon.",
 };
 
@@ -168,11 +170,15 @@ function ReplyBox() {
 
   const placeholder = selectedSession((s) => {
     if (s === null) return "Aucune session sélectionnée";
+    if (isLiveTerminal(s)) return "Session en cours dans un terminal";
     if (!isClosed(s)) return "Répondre…";
     return s.claudeSessionId === null ? "Session impossible à reprendre" : "Reprendre la session…";
   });
-  const canSend = selectedSession((s) => s !== null && (!isClosed(s) || s.claudeSessionId !== null));
-  const canStop = selectedSession((s) => s !== null && !isClosed(s));
+  const canSend = selectedSession(
+    (s) => s !== null && !isLiveTerminal(s) && (!isClosed(s) || s.claudeSessionId !== null),
+  );
+  const canStop = selectedSession((s) => s !== null && !isClosed(s) && !isLiveTerminal(s));
+  const inTerminal = selectedSession((s) => s !== null && isLiveTerminal(s));
 
   return (
     <Gtk.Box class="reply" spacing={6} visible={composing((c) => !c)}>
@@ -185,6 +191,16 @@ function ReplyBox() {
           entry = self;
           claimKeyboardOnClick(self);
           pasteImagesInto(self);
+        }}
+      />
+      <Gtk.Button
+        class="terminal"
+        label="Terminal"
+        tooltipText="Aller à la fenêtre du terminal"
+        visible={inTerminal}
+        onClicked={() => {
+          const session = selectedSession.peek();
+          if (session !== null) focusSession(session);
         }}
       />
       <Gtk.Button
