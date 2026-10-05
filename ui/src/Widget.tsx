@@ -14,6 +14,7 @@ import { claimKeyboardOnClick, releaseKeyboard, releaseKeyboardWhenDone } from "
 import { shortenPath } from "./paths.ts";
 import { PermissionCard } from "./PermissionCard.tsx";
 import { applyPlacement, corner, makeDraggable } from "./placement.ts";
+import { Spring, type SpringConfig } from "./spring.ts";
 import {
   composing,
   connection,
@@ -208,11 +209,12 @@ function ActivityLine() {
   );
 }
 
+/** Contenu de la carte (sans fond : c'est la forme qui le dessine). */
 function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
   const usage = selectedSession((s) => s?.usage ?? null);
   return (
     <Gtk.Box
-      class="card closed"
+      class="card"
       orientation={Gtk.Orientation.VERTICAL}
       spacing={8}
       widthRequest={CARD_WIDTH}
@@ -262,19 +264,21 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
   );
 }
 
-/** Pastille : état d'ensemble en un coup d'œil ; un clic ouvre la carte, glisser la déplace. */
+/** État d'ensemble affiché par la pastille (et sa couleur de bordure). */
+const pillState = createComputed(() => {
+  if (connection() !== "connected") return { cls: "offline", text: "daemon absent" };
+  const pending = permissions().length;
+  if (pending > 0) return { cls: "permission", text: pending > 1 ? `${pending} autorisations` : "autorisation requise" };
+  const busy = sessions().find((s) => s.status === "running" || s.status === "starting");
+  if (busy !== undefined) return { cls: "busy", text: activityText(busy) || "travaille…" };
+  return { cls: "ready", text: "prêt" };
+});
+
+/** Contenu de la pastille ; un clic ouvre la carte, glisser la déplace. */
 function Pill({ onCreated }: { onCreated: (pill: Gtk.Box) => void }) {
-  const state = createComputed(() => {
-    if (connection() !== "connected") return { cls: "offline", text: "daemon absent" };
-    const pending = permissions().length;
-    if (pending > 0) return { cls: "permission", text: pending > 1 ? `${pending} autorisations` : "autorisation requise" };
-    const busy = sessions().find((s) => s.status === "running" || s.status === "starting");
-    if (busy !== undefined) return { cls: "busy", text: activityText(busy) || "travaille…" };
-    return { cls: "ready", text: "prêt" };
-  });
   return (
     <Gtk.Box
-      class={state((s) => `pill ${s.cls}`)}
+      class={pillState((s) => `pill ${s.cls}`)}
       spacing={8}
       tooltipText="Cliquer pour ouvrir, glisser pour déplacer"
       $={(self) => {
@@ -284,80 +288,115 @@ function Pill({ onCreated }: { onCreated: (pill: Gtk.Box) => void }) {
     >
       <Gtk.Label class="dot" label="●" />
       <Gtk.Label class="name" label="noko" />
-      <Gtk.Label class="state" label={state((s) => s.text)} useMarkup={false} />
+      <Gtk.Label class="state" label={pillState((s) => s.text)} useMarkup={false} />
     </Gtk.Box>
   );
 }
 
-/** Classe CSS du coin d'accroche : point d'origine et sens des animations. */
-function cornerClass(): string {
-  const c = corner.peek();
-  return `from-${c.vertical}-${c.horizontal}`;
-}
+// Ressorts : ouverture vive avec un soupçon de rebond, fermeture nette sans rebond.
+const OPEN_SPRING: SpringConfig = { stiffness: 380, dampingRatio: 0.82 };
+const CLOSE_SPRING: SpringConfig = { stiffness: 520, dampingRatio: 1 };
+
+const smoothstep = (x: number) => {
+  const t = Math.min(Math.max(x, 0), 1);
+  return t * t * (3 - 2 * t);
+};
 
 /**
- * Seule la partie visible capte la souris (pastille, ou carte ouverte) : le reste de la
- * fenêtre, transparent, laisse passer les clics vers les fenêtres en dessous.
+ * La forme (fond arrondi) passe de la taille de la pastille à celle de la carte, et
+ * découvre le contenu au lieu de le déformer. Seule une boîte vide change de taille :
+ * le texte n'est jamais redimensionné. Les opacités suivent la progression de la forme.
+ * La fenêtre, elle, ne change jamais de taille (voir placement.ts).
  */
-function trackInputRegion(win: Gtk.Window, card: Gtk.Widget, pill: Gtk.Widget): void {
-  let last = "";
-  win.add_tick_callback(() => {
+function animateMorph(win: Gtk.Window, shell: Gtk.Widget, spacer: Gtk.Widget, card: Gtk.Box, pill: Gtk.Box): void {
+  const pillSize = () => {
+    const [, w] = pill.measure(Gtk.Orientation.HORIZONTAL, -1);
+    const [, h] = pill.measure(Gtk.Orientation.VERTICAL, -1);
+    return { w, h };
+  };
+  const target = () => (expanded.peek() ? { w: CARD_WIDTH, h: CARD_HEIGHT } : pillSize());
+  const initial = target();
+  const width = new Spring(initial.w, CLOSE_SPRING);
+  const height = new Spring(initial.h, CLOSE_SPRING);
+
+  /** Seule la partie visible capte la souris ; le reste laisse passer les clics. */
+  const updateInputRegion = () => {
     const surface = win.get_surface();
-    const target = expanded.peek() ? card : pill;
-    const [ok, bounds] = target.compute_bounds(win);
-    if (surface === null || !ok) return true;
-    const rect = {
+    const [ok, bounds] = (expanded.peek() ? card : pill).compute_bounds(win);
+    if (surface === null || !ok) return;
+    const region = new cairo.Region();
+    region.unionRectangle({
       x: Math.floor(bounds.get_x()),
       y: Math.floor(bounds.get_y()),
       width: Math.ceil(bounds.get_width()),
       height: Math.ceil(bounds.get_height()),
-    };
-    const key = `${rect.x},${rect.y},${rect.width},${rect.height}`;
-    if (key !== last) {
-      last = key;
-      const region = new cairo.Region();
-      region.unionRectangle(rect);
-      surface.set_input_region(region);
-    }
-    return true;
-  });
-}
-
-/**
- * Ouverture et fermeture animées en CSS, opacité et transformation seulement (voir
- * style.css). La fenêtre ne change jamais de taille : la carte se replie vers la
- * pastille, immobile dans son coin, qui réapparaît à la fin ; l'ouverture fait l'inverse.
- */
-function animateToggle(card: Gtk.Box, pill: Gtk.Box): void {
-  const setCorner = () => {
-    for (const w of [card, pill]) {
-      for (const cls of w.get_css_classes()) if (cls.startsWith("from-")) w.remove_css_class(cls);
-      w.add_css_class(cornerClass());
-    }
+    });
+    surface.set_input_region(region);
   };
-  const apply = () => {
+
+  const render = () => {
+    spacer.set_size_request(Math.round(width.value), Math.round(height.value));
+    // Progression 0 (pastille) → 1 (carte), d'après la hauteur de la forme.
+    const pill0 = pillSize().h;
+    const progress = (height.value - pill0) / Math.max(1, CARD_HEIGHT - pill0);
+    card.opacity = smoothstep((progress - 0.45) / 0.5);
+    pill.opacity = 1 - smoothstep(progress / 0.2);
+  };
+
+  // Le rappel d'image n'existe que pendant une animation : au repos, GTK ne redessine rien.
+  let tick = 0;
+  let last = 0;
+  const run = () => {
+    if (tick !== 0) return;
+    last = 0;
+    tick = shell.add_tick_callback((_w, clock) => {
+      const now = clock.get_frame_time() / 1e6;
+      const dt = last === 0 ? 1 / 60 : now - last;
+      last = now;
+      width.step(dt);
+      height.step(dt);
+      render();
+      if (width.settled() && height.settled()) {
+        tick = 0;
+        updateInputRegion();
+        return false;
+      }
+      return true;
+    });
+  };
+
+  const retarget = () => {
     const open = expanded.peek();
+    const t = target();
+    const config = open ? OPEN_SPRING : CLOSE_SPRING;
+    width.setTarget(t.w, config);
+    height.setTarget(t.h, config);
     card.canTarget = open;
     pill.canTarget = !open;
-    if (open) {
-      pill.add_css_class("hidden");
-      card.remove_css_class("closed");
-    } else {
-      card.add_css_class("closed");
-      pill.remove_css_class("hidden");
-    }
+    updateInputRegion();
+    run();
   };
-  setCorner();
-  corner.subscribe(setCorner);
-  apply();
-  expanded.subscribe(apply);
+
+  card.canTarget = expanded.peek();
+  pill.canTarget = !expanded.peek();
+  render();
+  expanded.subscribe(retarget);
+  // Texte de la pastille modifié : la forme suit sa nouvelle largeur, en douceur.
+  pillState.subscribe(() => {
+    if (!expanded.peek()) retarget();
+  });
+  // Coin d'accroche modifié (déplacement) : la zone cliquable suit, une fois placée.
+  corner.subscribe(() => shell.add_tick_callback(() => (updateInputRegion(), false)));
+  // Première zone cliquable, une fois la fenêtre affichée.
+  win.connect("map", () => shell.add_tick_callback(() => (updateInputRegion(), false)));
 }
 
 export function Widget({ app }: { app: Gtk.Application }) {
+  let shell: Gtk.Overlay;
+  let spacer: Gtk.Box;
   let card: Gtk.Box;
   let pill: Gtk.Box;
-  let pillHolder: Gtk.Box;
-  // La pastille et la carte partagent le coin d'accroche : la carte « éclot » de la pastille.
+  // Tout part du coin d'accroche : la forme y reste collée et grandit vers le centre.
   const halign = corner((c) => (c.horizontal === "left" ? Gtk.Align.START : Gtk.Align.END));
   const valign = corner((c) => (c.vertical === "top" ? Gtk.Align.START : Gtk.Align.END));
 
@@ -369,22 +408,30 @@ export function Widget({ app }: { app: Gtk.Application }) {
       $={(win) => {
         setupLayerShell(win);
         setupClickCatcher(app, win);
-        animateToggle(card, pill);
-        trackInputRegion(win, card, pill);
+        animateMorph(win, shell, spacer, card, pill);
         win.present();
       }}
     >
-      <Gtk.Overlay
-        class="root"
-        $={(self) => {
-          // La pastille compte dans la taille : fenêtre à sa taille quand la carte est cachée.
-          self.set_measure_overlay(pillHolder, true);
-        }}
-      >
-        <Card onCreated={(c) => (card = c)} />
-        <Gtk.Box $type="overlay" halign={halign} valign={valign} $={(self) => (pillHolder = self)}>
-          <Pill onCreated={(p) => (pill = p)} />
-        </Gtk.Box>
+      <Gtk.Overlay class="root">
+        {/* Taille fixe de la fenêtre : celle de la carte ouverte. */}
+        <Gtk.Box class="sizer" widthRequest={CARD_WIDTH} heightRequest={CARD_HEIGHT} />
+        <Gtk.Overlay
+          $type="overlay"
+          class={pillState((s) => `shell ${s.cls}`)}
+          halign={halign}
+          valign={valign}
+          overflow={Gtk.Overflow.HIDDEN}
+          $={(self) => (shell = self)}
+        >
+          {/* Boîte vide dont la taille, animée, fixe celle de la forme. */}
+          <Gtk.Box $={(self) => (spacer = self)} />
+          <Gtk.Box $type="overlay" halign={halign} valign={valign}>
+            <Card onCreated={(c) => (card = c)} />
+          </Gtk.Box>
+          <Gtk.Box $type="overlay" halign={halign} valign={valign}>
+            <Pill onCreated={(p) => (pill = p)} />
+          </Gtk.Box>
+        </Gtk.Overlay>
       </Gtk.Overlay>
     </Gtk.ApplicationWindow>
   );

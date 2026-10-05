@@ -1,6 +1,6 @@
 // Lanceur de l'UI (Node) : assemble ui/src en un seul module ES avec esbuild, puis
 // lance GJS dessus. `--watch` réassemble et relance à chaque modification ;
-// `--build-only` assemble sans lancer.
+// `--build-only` assemble sans lancer ; `--slow` ralentit les animations (×5).
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -18,6 +18,8 @@ const LAYER_SHELL_LIB = "/usr/lib/libgtk4-layer-shell.so";
 const args = new Set(process.argv.slice(2));
 const watch = args.has("--watch");
 const buildOnly = args.has("--build-only");
+// Ralenti : nos ressorts (NOKO_SLOWDOWN) et les animations internes de GTK (GTK_SLOWDOWN).
+const slowdown = args.has("--slow") ? { NOKO_SLOWDOWN: "5", GTK_SLOWDOWN: "5" } : {};
 
 const options: esbuild.BuildOptions = {
   entryPoints: [join(UI_DIR, "src", "app.ts")],
@@ -51,7 +53,7 @@ async function startUi(): Promise<void> {
   await stopUi();
   child = spawn("gjs", ["-m", OUTFILE], {
     stdio: "inherit",
-    env: { ...process.env, LD_PRELOAD: LAYER_SHELL_LIB },
+    env: { ...process.env, ...slowdown, LD_PRELOAD: LAYER_SHELL_LIB },
   });
   child.once("error", (err) => {
     process.stderr.write(`noko : impossible de lancer gjs (${err.message})\n`);
