@@ -8,7 +8,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { SessionActivity, SessionUsage } from "../../shared/protocol.ts";
+import type { ImageAttachment, SessionActivity, SessionUsage } from "../../shared/protocol.ts";
 import { assistantEntries } from "./history.ts";
 import type { Decision, PermissionAsk } from "./permissions.ts";
 import { settingSourcesFor } from "./trust.ts";
@@ -30,14 +30,20 @@ export interface SessionEvents {
   requestPermission(ask: PermissionAsk, signal: AbortSignal): Promise<Decision>;
 }
 
+/** Message de l'utilisateur : texte et images jointes. */
+export interface UserMessage {
+  text: string;
+  images: readonly ImageAttachment[];
+}
+
 export interface RunningSession {
-  send(text: string): void;
+  send(message: UserMessage): void;
   stop(): void;
 }
 
 export interface StartOptions {
   cwd: string;
-  prompt: string;
+  prompt: UserMessage;
   /** Identifiant de session Claude Code à reprendre. */
   resume?: string;
   events: SessionEvents;
@@ -52,11 +58,22 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   private waiting: ((r: IteratorResult<SDKUserMessage>) => void) | null = null;
   private closed = false;
 
-  push(text: string): void {
+  push({ text, images }: UserMessage): void {
     if (this.closed) return;
+    // Images d'abord, puis le texte (ordre recommandé par l'API).
+    const content: SDKUserMessage["message"]["content"] =
+      images.length === 0
+        ? text
+        : [
+            ...images.map((image) => ({
+              type: "image" as const,
+              source: { type: "base64" as const, media_type: image.mediaType, data: image.data },
+            })),
+            { type: "text" as const, text },
+          ];
     const msg: SDKUserMessage = {
       type: "user",
-      message: { role: "user", content: text },
+      message: { role: "user", content },
       parent_tool_use_id: null,
     };
     if (this.waiting !== null) {
@@ -227,7 +244,7 @@ export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }
   })();
 
   return {
-    send: (text) => input.push(text),
+    send: (message) => input.push(message),
     stop: () => {
       input.close();
       abortController.abort();

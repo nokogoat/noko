@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { basename } from "node:path";
 import type { ClientMessage, SessionInfo, SessionStatus } from "../../shared/protocol.ts";
-import type { RunningSession, StartSession } from "./claude-session.ts";
+import type { RunningSession, StartSession, UserMessage } from "./claude-session.ts";
 import type { LoadHistory } from "./history.ts";
 import { IpcServer, type Connection, type IpcLimits } from "./ipc-server.ts";
 import { errorFields, log } from "./log.ts";
@@ -99,7 +99,7 @@ export class Daemon {
         conn.send({ type: "state.snapshot", sessions: this.snapshot(), permissions: this.permissions.list() });
         return;
       case "session.create":
-        this.create(conn, msg.cwd, msg.prompt, msg.name);
+        this.create(conn, msg.cwd, { text: msg.prompt, images: msg.images ?? [] }, msg.name);
         return;
       case "session.send": {
         const record = this.find(conn, msg.sessionId);
@@ -108,9 +108,7 @@ export class Daemon {
           conn.send({ type: "error", code: "session_closed", message: "session terminée" });
           return;
         }
-        this.ipc.broadcast({ type: "message.user", sessionId: record.info.id, text: msg.text });
-        record.runner.send(msg.text);
-        this.update(record, "running");
+        this.sendUser(record, record.runner, { text: msg.text, images: msg.images ?? [] });
         return;
       }
       case "session.resume": {
@@ -118,9 +116,7 @@ export class Daemon {
         if (record === null) return;
         if (record.runner !== null && !CLOSED.has(record.info.status)) {
           // Déjà active : le message est simplement envoyé.
-          this.ipc.broadcast({ type: "message.user", sessionId: record.info.id, text: msg.text });
-          record.runner.send(msg.text);
-          this.update(record, "running");
+          this.sendUser(record, record.runner, { text: msg.text, images: msg.images ?? [] });
           return;
         }
         const claudeSessionId = record.info.claudeSessionId;
@@ -132,7 +128,7 @@ export class Daemon {
           conn.send({ type: "error", code: "invalid_cwd", message: "dossier introuvable" });
           return;
         }
-        this.launch(record, msg.text, claudeSessionId);
+        this.launch(record, { text: msg.text, images: msg.images ?? [] }, claudeSessionId);
         log("session.resumed", { session: record.info.id });
         return;
       }
@@ -172,7 +168,7 @@ export class Daemon {
     }
   }
 
-  private create(conn: Connection, cwd: string, prompt: string, name: string | undefined): void {
+  private create(conn: Connection, cwd: string, prompt: UserMessage, name: string | undefined): void {
     if (!isDirectory(cwd)) {
       conn.send({ type: "error", code: "invalid_cwd", message: "dossier introuvable" });
       return;
@@ -197,11 +193,22 @@ export class Daemon {
   }
 
   /** Démarre (ou reprend) l'exécution d'une session avec un premier message. */
-  private launch(record: SessionRecord, prompt: string, resume: string | undefined): void {
+  /** Message envoyé à une session active ; renvoyé aux UI sans le contenu des images. */
+  private sendUser(record: SessionRecord, runner: RunningSession, message: UserMessage): void {
+    this.broadcastUser(record.info.id, message);
+    runner.send(message);
+    this.update(record, "running");
+  }
+
+  private broadcastUser(sessionId: string, { text, images }: UserMessage): void {
+    this.ipc.broadcast({ type: "message.user", sessionId, text, imageCount: images.length });
+  }
+
+  private launch(record: SessionRecord, prompt: UserMessage, resume: string | undefined): void {
     const id = record.info.id;
     const run = ++record.run;
     this.update(record, "starting");
-    this.ipc.broadcast({ type: "message.user", sessionId: id, text: prompt });
+    this.broadcastUser(id, prompt);
 
     // Seule l'exécution en cours, tant qu'elle n'est pas terminée, peut modifier l'état.
     const live = () => record.run === run && !CLOSED.has(record.info.status);

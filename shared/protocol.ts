@@ -4,8 +4,16 @@
 
 import { z } from "zod";
 
-/** Taille maximale d'une ligne (message), saut de ligne exclu. */
-export const MAX_LINE_BYTES = 1024 * 1024;
+/**
+ * Taille maximale d'une ligne (message), saut de ligne exclu. 8 Mio pour les images
+ * jointes (base64) : au plus 8 connexions × 8 Mio en mémoire côté daemon.
+ */
+export const MAX_LINE_BYTES = 8 * 1024 * 1024;
+
+/** Images jointes à un message : nombre et taille (en caractères base64) maximaux. */
+export const MAX_IMAGES = 4;
+// 4 × 1,5 Mio + texte (256 Ki caractères, échappés) reste sous MAX_LINE_BYTES.
+export const MAX_IMAGE_BASE64 = 1.5 * 1024 * 1024;
 
 /** Nom du fichier de socket dans $XDG_RUNTIME_DIR. */
 export const SOCKET_NAME = "noko.sock";
@@ -19,6 +27,18 @@ const AbsolutePath = z
   .refine((p) => p.startsWith("/") && !p.includes("\0"), "chemin absolu attendu");
 
 const UserText = z.string().min(1).max(256 * 1024);
+
+export const ImageAttachment = z.strictObject({
+  mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+  data: z
+    .string()
+    .min(1)
+    .max(MAX_IMAGE_BASE64)
+    .regex(/^[A-Za-z0-9+/]+={0,2}$/, "base64 attendu"),
+});
+export type ImageAttachment = z.infer<typeof ImageAttachment>;
+
+const Images = z.array(ImageAttachment).max(MAX_IMAGES);
 
 const SessionName = z.string().min(1).max(200);
 
@@ -111,18 +131,21 @@ export const ClientMessage = z.discriminatedUnion("type", [
     type: z.literal("session.create"),
     cwd: AbsolutePath,
     prompt: UserText,
+    images: Images.optional(),
     name: SessionName.optional(),
   }),
   z.strictObject({
     type: z.literal("session.send"),
     sessionId: SessionId,
     text: UserText,
+    images: Images.optional(),
   }),
   /** Relance une session terminée (ou d'une session précédente du daemon) avec un message. */
   z.strictObject({
     type: z.literal("session.resume"),
     sessionId: SessionId,
     text: UserText,
+    images: Images.optional(),
   }),
   z.strictObject({
     type: z.literal("session.stop"),
@@ -177,6 +200,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     type: z.literal("message.user"),
     sessionId: SessionId,
     text: z.string(),
+    /** Nombre d'images jointes (le contenu n'est pas renvoyé). */
+    imageCount: z.number().int().min(0).max(MAX_IMAGES),
   }),
   /** Texte complet d'un message de Claude, une fois terminé. */
   z.strictObject({

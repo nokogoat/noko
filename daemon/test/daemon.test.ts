@@ -87,6 +87,8 @@ class Client {
 interface FakeSession {
   cwd: string;
   prompt: string;
+  promptImages: number;
+  sentImages: number[];
   resume: string | undefined;
   sent: string[];
   stopped: boolean;
@@ -99,10 +101,22 @@ let daemon: Daemon;
 let fakes: FakeSession[];
 let store: SessionStore;
 const startFake: StartSession = ({ cwd, prompt, resume, events }) => {
-  const fake: FakeSession = { cwd, prompt, resume, sent: [], stopped: false, events };
+  const fake: FakeSession = {
+    cwd,
+    prompt: prompt.text,
+    promptImages: prompt.images.length,
+    resume,
+    sent: [],
+    sentImages: [],
+    stopped: false,
+    events,
+  };
   fakes.push(fake);
   return {
-    send: (text) => fake.sent.push(text),
+    send: (message) => {
+      fake.sent.push(message.text);
+      fake.sentImages.push(message.images.length);
+    },
     stop: () => {
       fake.stopped = true;
     },
@@ -472,4 +486,35 @@ test("activité, outils et consommation sont diffusés sans être enregistrés",
     [[id, null, null]],
   );
   c.sock.destroy();
+});
+
+test("images jointes : transmises à la session, seul leur nombre est renvoyé aux UI", async () => {
+  const png = { mediaType: "image/png", data: "iVBORw0KGgo=" };
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "regarde", images: [png, png] });
+  const echo = await c.next("message.user");
+  assert.equal(echo.imageCount, 2);
+  assert.equal(JSON.stringify(echo).includes(png.data), false);
+  const id = (await c.next("session.update")).session.id;
+  assert.equal(fakes[0]!.promptImages, 2);
+
+  fakes[0]!.events.onInit("claude-img");
+  c.send({ type: "session.send", sessionId: id, text: "et celle-ci", images: [png] });
+  assert.equal((await c.next("message.user", (m) => m.text === "et celle-ci")).imageCount, 1);
+  assert.deepEqual(fakes[0]!.sentImages, [1]);
+  c.sock.destroy();
+});
+
+test("images invalides : connexion fermée", async () => {
+  for (const images of [
+    [{ mediaType: "image/svg+xml", data: "AAAA" }],
+    [{ mediaType: "image/png", data: "pas du base64 !" }],
+    Array.from({ length: 5 }, () => ({ mediaType: "image/png", data: "AAAA" })),
+  ]) {
+    const c = await Client.connect(path);
+    c.send({ type: "session.create", cwd: dir, prompt: "x", images });
+    assert.equal((await c.next("error")).code, "invalid_message");
+    await c.waitClosed();
+  }
+  assert.equal(fakes.length, 0);
 });
