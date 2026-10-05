@@ -23,7 +23,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "0.128.0",
+    "@anthropic-ai/sdk": "0.129.0",
     "@girs/gjs": "5.4.0",
     "@girs/gtk-4.0": "5.4.0",
     "@girs/gtk4layershell-1.0": "5.4.0",
