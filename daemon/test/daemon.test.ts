@@ -295,6 +295,38 @@ test("erreurs : dossier introuvable, session inconnue, fin sur erreur", async ()
   c.sock.destroy();
 });
 
+test("suppression : session arrêtée d'abord, demandes annulées, retirée de la base", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  const id = (await c.next("session.update")).session.id;
+  const fake = fakes[0]!;
+  fake.events.onInit("claude-del");
+  await c.next("session.update", (m) => m.session.status === "running");
+  const pending = fake.events.requestPermission(
+    { toolName: "Bash", input: { command: "ls" }, title: null, reason: null, blockedPath: null },
+    new AbortController().signal,
+  );
+  await c.next("permission.request");
+
+  c.send({ type: "session.delete", sessionId: id });
+  assert.equal((await c.next("session.removed")).sessionId, id);
+  assert.equal(await pending, "deny");
+  assert.ok(fake.stopped);
+  assert.deepEqual(store.load(), []);
+
+  // Les événements tardifs ne la font pas réapparaître.
+  fake.events.onTurnEnd(false);
+  fake.events.onExit();
+  c.send({ type: "state.get" });
+  const snap = await c.next("state.snapshot");
+  assert.deepEqual([snap.sessions, snap.permissions], [[], []]);
+  assert.deepEqual(store.load(), []);
+
+  c.send({ type: "session.delete", sessionId: id });
+  assert.equal((await c.next("error")).code, "unknown_session");
+  c.sock.destroy();
+});
+
 test("le message de l'utilisateur est renvoyé à toutes les UI", async () => {
   const a = await Client.connect(path);
   const b = await Client.connect(path);
@@ -643,6 +675,9 @@ test("terminal : cycle de vie suivi par les hooks, pilotage refusé tant qu'elle
     assert.equal((await ui.next("error")).code, "terminal_session");
   }
   ui.send({ type: "session.stop", sessionId: id });
+  assert.equal((await ui.next("error")).code, "terminal_session");
+  // Ouverte dans un terminal, elle ne se supprime pas : ses hooks la recréeraient.
+  ui.send({ type: "session.delete", sessionId: id });
   assert.equal((await ui.next("error")).code, "terminal_session");
 
   ui.send({ type: "session.focus", sessionId: id });

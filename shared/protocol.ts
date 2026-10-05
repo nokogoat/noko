@@ -260,6 +260,14 @@ export const ClientMessage = z.discriminatedUnion("type", [
     type: z.literal("session.stop"),
     sessionId: SessionId,
   }),
+  /**
+   * Retire une session de la liste de noko (arrêtée d'abord si elle tourne). L'historique de
+   * Claude Code (~/.claude/projects/) n'est pas touché : elle reste reprenable au terminal.
+   */
+  z.strictObject({
+    type: z.literal("session.delete"),
+    sessionId: SessionId,
+  }),
   /** Demande l'historique d'une session, lu dans les transcripts de Claude Code. */
   z.strictObject({
     type: z.literal("session.history"),
@@ -331,6 +339,11 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("session.update"),
     session: SessionInfo,
+  }),
+  /** Session retirée de la liste. */
+  z.strictObject({
+    type: z.literal("session.removed"),
+    sessionId: SessionId,
   }),
   /** Fragment de texte de la réponse en cours (streaming). */
   z.strictObject({

@@ -28,6 +28,7 @@ export class SessionStore {
   private readonly db: DatabaseSync;
   private readonly upsertStmt: StatementSync;
   private readonly allStmt: StatementSync;
+  private readonly deleteStmt: StatementSync;
 
   constructor(dir: string) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -62,10 +63,15 @@ export class SessionStore {
     this.allStmt = this.db.prepare(
       "SELECT id, claude_session_id, name, cwd, last_activity, source FROM sessions ORDER BY last_activity DESC",
     );
+    this.deleteStmt = this.db.prepare("DELETE FROM sessions WHERE id = ?");
   }
 
   save(info: SessionInfo): void {
     this.upsertStmt.run(info.id, info.claudeSessionId, info.name, info.cwd, info.lastActivity, info.source);
+  }
+
+  delete(id: string): void {
+    this.deleteStmt.run(id);
   }
 
   /** Sessions enregistrées, toutes marquées « stopped » (aucune ne tourne au démarrage). */

@@ -24,6 +24,7 @@ import type { TerminalDeps } from "./terminal.ts";
 /** Persistance de la liste des sessions (SessionStore en production). */
 export interface SessionPersistence {
   save(info: SessionInfo): void;
+  delete(id: string): void;
   load(): SessionInfo[];
 }
 
@@ -212,6 +213,27 @@ export class Daemon {
         runner?.stop();
         this.update(record, "stopped");
         log("session.stopped", { session: record.info.id });
+        return;
+      }
+      case "session.delete": {
+        const record = this.find(conn, msg.sessionId);
+        // Session terminal ouverte : ses hooks la recréeraient aussitôt.
+        if (record === null || this.inTerminal(conn, record)) return;
+        const runner = record.runner;
+        record.runner = null;
+        // Fermée avant tout : les événements tardifs de son exécution sont ignorés.
+        record.info.status = "stopped";
+        this.permissions.cancelSession(record.info.id);
+        this.questions.cancelSession(record.info.id);
+        runner?.stop();
+        this.sessions.delete(record.info.id);
+        try {
+          this.deps.store.delete(record.info.id);
+        } catch (err) {
+          log("store.delete_failed", { session: record.info.id, ...errorFields(err) });
+        }
+        log("session.deleted", { session: record.info.id });
+        this.ipc.broadcast({ type: "session.removed", sessionId: record.info.id });
         return;
       }
       case "session.focus": {

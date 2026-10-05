@@ -32,6 +32,9 @@ test("enregistre, relit et protège la base", () => {
   store.save(info);
   store.save({ ...info, name: "renommé", lastActivity: 2000 });
   assert.deepEqual(store.load(), [{ ...info, name: "renommé", lastActivity: 2000, status: "stopped" }]);
+  store.delete(info.id);
+  store.delete(info.id); // déjà supprimée : sans effet
+  assert.deepEqual(store.load(), []);
   store.close();
 
   assert.equal(statSync(dir).mode & 0o777, 0o700);
