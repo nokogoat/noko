@@ -249,6 +249,19 @@ function ActivityLine() {
   );
 }
 
+/**
+ * Ouvre le menu contextuel du texte ou du champ sous (x, y) : le clic droit qui l'aurait
+ * ouvert a été pris par le geste de redimensionnement.
+ */
+function popupMenuAt(root: Gtk.Widget, x: number, y: number): void {
+  for (let w = root.pick(x, y, Gtk.PickFlags.DEFAULT); w !== null && w !== root; w = w.get_parent()) {
+    if ((w instanceof Gtk.Label && w.selectable) || w instanceof Gtk.Text) {
+      w.activate_action("menu.popup", null);
+      return;
+    }
+  }
+}
+
 /** Contenu de la carte (sans fond : c'est la forme qui le dessine). */
 function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
   const usage = selectedSession((s) => s?.usage ?? null);
@@ -269,9 +282,9 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
         click.connect("pressed", () => setEngaged(true));
         self.add_controller(click);
         acceptImageDrops(self);
-        // Super + clic droit glissé : redimensionner, comme une fenêtre de Hyprland
-        // (si Hyprland laisse passer ce clic ; sinon, la poignée du coin libre).
-        makeResizable(self, 3, Gdk.ModifierType.SUPER_MASK);
+        // Clic droit glissé n'importe où : redimensionner (aussi avec Super, si Hyprland
+        // laisse passer ce clic). Un clic droit simple garde son menu (Copier, Coller…).
+        makeResizable(self, 3, (x, y) => popupMenuAt(self, x, y));
       }}
     >
       <Gtk.Box class="header" spacing={6}>
@@ -587,7 +600,7 @@ export function Widget({ app }: { app: Gtk.Application }) {
             valign={valign((a) => (a === Gtk.Align.START ? Gtk.Align.END : Gtk.Align.START))}
             visible={expanded}
             $={(self) => {
-              makeResizable(self, 1, null);
+              makeResizable(self, 1);
               const cursor = () => {
                 const c = corner.peek();
                 // Coin libre en haut à droite ou en bas à gauche : diagonale « / ».

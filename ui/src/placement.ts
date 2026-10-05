@@ -224,23 +224,35 @@ export function makeDraggable(handle: Gtk.Widget, onClick: () => void): void {
 
 /**
  * Redimensionne la carte en glissant `handle` avec le bouton `button` (1 = gauche,
- * 3 = droit), et seulement avec la touche `modifier` enfoncée si elle est donnée. Le coin
- * d'accroche ne bouge pas : la carte grandit vers le centre de l'écran. La taille est
- * mémorisée au lâcher.
+ * 3 = droit). Le coin d'accroche ne bouge pas : la carte grandit vers le centre de l'écran.
+ * La taille est mémorisée au lâcher.
+ *
+ * Le geste ne commence qu'au-delà de quelques pixels : un simple clic appelle `onClick`
+ * (position dans `handle`). Avec le bouton droit, le geste passe avant les widgets de la
+ * carte, qui ne voient donc plus ce clic : `onClick` leur rend (menu contextuel).
+ *
+ * Pas de touche exigée (Super…) : sous Wayland, l'état des touches n'est envoyé qu'à la
+ * fenêtre qui a le clavier, et le panneau ne le prend jamais de lui-même.
  *
  * Avec Hyprland, la carte suit le curseur (position lue dans sa socket) et la fenêtre prend
  * d'emblée toute la place disponible, pour ne pas changer de taille à chaque mouvement.
  * Sans Hyprland, la nouvelle taille s'applique au lâcher.
  */
-export function makeResizable(handle: Gtk.Widget, button: number, modifier: Gdk.ModifierType | null): void {
+export function makeResizable(
+  handle: Gtk.Widget,
+  button: number,
+  onClick: ((x: number, y: number) => void) | null = null,
+): void {
   const drag = new Gtk.GestureDrag();
   drag.set_button(button);
-  // Avec une touche : le geste passe avant les widgets de la carte (sinon, ils le gardent).
-  if (modifier !== null) drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+  if (button !== 1) drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+  let geom: Gdk.Rectangle | null = null;
+  let press = { x: 0, y: 0 };
   let start: Size = cardSize.peek();
   let room: Size | null = null;
-  /** Curseur à l'écran au début du geste (Hyprland). */
+  /** Curseur à l'écran au début du redimensionnement (Hyprland). */
   let origin: { x: number; y: number } | null = null;
+  let pressed = false;
   let active = false;
   let live = false;
   let inFlight = false;
@@ -273,37 +285,51 @@ export function makeResizable(handle: Gtk.Widget, button: number, modifier: Gdk.
     });
   };
 
-  drag.connect("drag-begin", () => {
-    if (modifier !== null && (drag.get_current_event_state() & modifier) === 0) {
-      drag.set_state(Gtk.EventSequenceState.DENIED);
-      return;
-    }
-    const root = handle.get_root();
-    const geom = root instanceof Gtk.Window ? monitorGeometry(root) : null;
-    if (geom === null) {
-      drag.set_state(Gtk.EventSequenceState.DENIED);
-      return;
-    }
-    drag.set_state(Gtk.EventSequenceState.CLAIMED);
-    setInteracting(true);
+  /** Le glissement dépasse le seuil : le redimensionnement commence. */
+  const begin = () => {
+    if (geom === null) return;
     start = cardSize.peek();
     // Place à l'écran : tout sauf la marge d'accroche et celles de la forme.
     room = { w: geom.width - margins.x - 2 * SHELL_MARGIN, h: geom.height - margins.y - 2 * SHELL_MARGIN };
     origin = null;
     active = true;
     live = hyprlandAvailable();
+    setInteracting(true);
     if (live) {
       setResizeRoom(clampSize({ w: CARD_SIZE.width.max, h: CARD_SIZE.height.max }, room));
       followCursor();
     }
+  };
+
+  drag.connect("drag-begin", (_g, x, y) => {
+    const root = handle.get_root();
+    geom = root instanceof Gtk.Window ? monitorGeometry(root) : null;
+    if (geom === null) {
+      drag.set_state(Gtk.EventSequenceState.DENIED);
+      return;
+    }
+    drag.set_state(Gtk.EventSequenceState.CLAIMED);
+    press = { x, y };
+    pressed = true;
+    active = false;
   });
 
-  drag.connect("drag-update", () => {
+  drag.connect("drag-update", (_g, dx, dy) => {
+    if (!pressed) return;
+    if (!active) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      begin();
+    }
     if (active && live) followCursor();
   });
 
   drag.connect("drag-end", (_g, dx, dy) => {
-    if (!active) return;
+    if (!pressed) return;
+    pressed = false;
+    if (!active) {
+      onClick?.(press.x, press.y);
+      return;
+    }
     active = false;
     if (!live) setCardSize(sizeFor(dx, dy));
     setResizeRoom(null);
