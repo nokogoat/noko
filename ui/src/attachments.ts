@@ -9,6 +9,7 @@ import GObject from "gi://GObject?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
 import { createState } from "gnim";
 import { type ImageAttachment, MAX_IMAGE_BASE64, MAX_IMAGES } from "../../shared/protocol.ts";
+import { t } from "./i18n.ts";
 
 /** Au-delà, l'API réduit l'image de toute façon : inutile d'envoyer plus. */
 const MAX_EDGE = 1568;
@@ -52,12 +53,12 @@ function encodePng(source: GdkPixbuf.Pixbuf): Uint8Array | null {
 
 function addPixbuf(pixbuf: GdkPixbuf.Pixbuf): void {
   if (attachments.peek().length >= MAX_IMAGES) {
-    setAttachmentError(`${MAX_IMAGES} images au maximum par message.`);
+    setAttachmentError(t.peek().attachment.tooMany(MAX_IMAGES));
     return;
   }
   const png = encodePng(pixbuf);
   if (png === null) {
-    setAttachmentError("Image trop grande ou illisible.");
+    setAttachmentError(t.peek().attachment.tooLarge);
     return;
   }
   const attachment: Attachment = {
@@ -74,20 +75,20 @@ export function addTexture(texture: Gdk.Texture): void {
     const stream = Gio.MemoryInputStream.new_from_bytes(texture.save_to_png_bytes());
     addPixbuf(GdkPixbuf.Pixbuf.new_from_stream(stream, null));
   } catch {
-    setAttachmentError("Image illisible.");
+    setAttachmentError(t.peek().attachment.unreadable);
   }
 }
 
 export function addFile(file: Gio.File): void {
   const path = file.get_path();
   if (path === null) {
-    setAttachmentError("Fichier inaccessible.");
+    setAttachmentError(t.peek().attachment.inaccessible);
     return;
   }
   try {
     addPixbuf(GdkPixbuf.Pixbuf.new_from_file(path));
   } catch {
-    setAttachmentError("Ce fichier n'est pas une image lisible.");
+    setAttachmentError(t.peek().attachment.notImage);
   }
 }
 
@@ -121,7 +122,7 @@ export function pasteImagesInto(entry: Gtk.Widget): void {
           const texture = clipboard.read_texture_finish(res);
           if (texture !== null) addTexture(texture);
         } catch {
-          setAttachmentError("Image du presse-papiers illisible.");
+          setAttachmentError(t.peek().attachment.clipboardImage);
         }
       });
       return true;
@@ -132,7 +133,7 @@ export function pasteImagesInto(entry: Gtk.Widget): void {
           const list = clipboard.read_value_finish(res) as unknown as Gdk.FileList;
           for (const file of list.get_files()) addFile(file);
         } catch {
-          setAttachmentError("Fichiers du presse-papiers illisibles.");
+          setAttachmentError(t.peek().attachment.clipboardFiles);
         }
       });
       return true;

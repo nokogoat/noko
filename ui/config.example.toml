@@ -1,6 +1,9 @@
 # Configuration de noko. Ce fichier est relu automatiquement à chaque modification.
 # Une valeur invalide est ignorée (sa valeur par défaut s'applique) : rien ne casse.
 
+[general]
+language = "auto"   # langue de l'interface : "auto" (celle du système), "fr" ou "en"
+
 [panel]
 # Coin de départ de la pastille : "bottom-left", "bottom-right", "top-left", "top-right".
 # La position choisie en glissant la pastille est ensuite mémorisée.

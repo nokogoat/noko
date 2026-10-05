@@ -9,6 +9,13 @@ test("config vide ou absente : valeurs par défaut", () => {
   assert.equal(DEFAULT_CONFIG.panel.corner, "bottom-left");
   assert.equal(DEFAULT_CONFIG.theme.name, "nuit");
   assert.equal(DEFAULT_CONFIG.sounds.enabled, false);
+  assert.equal(DEFAULT_CONFIG.general.language, "auto");
+});
+
+test("langue : fr, en ou auto ; une langue non traduite retombe sur auto", () => {
+  assert.equal(parseConfig('[general]\nlanguage = "en"').value.general.language, "en");
+  assert.equal(parseConfig('[general]\nlanguage = "de"').value.general.language, "auto");
+  assert.equal(parseConfig("[general]\nlanguage = 1").value.general.language, "auto");
 });
 
 test("TOML illisible : valeurs par défaut et erreur signalée", () => {

@@ -9,6 +9,7 @@ import type {
   ServerMessage,
   SessionInfo,
 } from "../../shared/protocol.ts";
+import { t } from "./i18n.ts";
 import type { ConnectionState } from "./ipc.ts";
 import { config } from "./settings.ts";
 import { playSound } from "./sounds.ts";
@@ -129,7 +130,7 @@ export function applyMessage(msg: ServerMessage): void {
     }
     case "message.user": {
       const n = msg.imageCount;
-      const text = n === 0 ? msg.text : `${msg.text}\n[${n} image${n > 1 ? "s" : ""} jointe${n > 1 ? "s" : ""}]`;
+      const text = n === 0 ? msg.text : `${msg.text}\n${t.peek().composer.imagesAttached(n)}`;
       updateTranscript(msg.sessionId, (t) => ({
         ...t,
         entries: [...t.entries, { role: "user", text }],

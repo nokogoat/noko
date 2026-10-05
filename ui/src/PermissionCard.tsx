@@ -10,6 +10,7 @@ import { createComputed, createState, onCleanup } from "gnim";
 import type { PermissionRequest } from "../../shared/protocol.ts";
 import { answerPermission } from "./actions.ts";
 import { DiffView } from "./DiffView.tsx";
+import { t } from "./i18n.ts";
 import { sessions } from "./store.ts";
 
 /** Délai avant de pouvoir autoriser : évite le clic sur une carte apparue sous la souris. */
@@ -65,33 +66,41 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
   const fromTerminal = session?.source === "terminal";
   const remaining = request.expiresAt - Date.now();
   // Session terminal : sans réponse, c'est le terminal qui demande (pas de refus).
-  const deadline = fromTerminal
-    ? `Sinon, le terminal demandera dans ${Math.max(1, Math.ceil(remaining / 1000))} s`
-    : `Refus automatique dans ${Math.max(1, Math.ceil(remaining / 60_000))} min`;
+  const deadline = t((s) =>
+    fromTerminal
+      ? s.permission.terminalDeadline(Math.max(1, Math.ceil(remaining / 1000)))
+      : s.permission.denyDeadline(Math.max(1, Math.ceil(remaining / 60_000))),
+  );
 
   return (
     <Gtk.Box class="permission" orientation={Gtk.Orientation.VERTICAL} spacing={6}>
       <Gtk.Label
         class="permission-title"
-        label={request.title ?? `Claude veut utiliser ${request.toolName}`}
+        label={t((s) => request.title ?? s.permission.title(request.toolName))}
         useMarkup={false}
         wrap
         xalign={0}
       />
       <Gtk.Label
         class="permission-meta"
-        label={`${sessionName}${fromTerminal ? " (terminal)" : ""} · ${request.toolName}`}
+        label={t((s) => `${sessionName}${fromTerminal ? ` ${s.permission.fromTerminal}` : ""} · ${request.toolName}`)}
         useMarkup={false}
         ellipsize={Pango.EllipsizeMode.END}
         xalign={0}
       />
       {request.reason !== null ? (
-        <Gtk.Label class="permission-meta" label={`Raison : ${request.reason}`} useMarkup={false} wrap xalign={0} />
+        <Gtk.Label
+          class="permission-meta"
+          label={t((s) => s.permission.reason(request.reason ?? ""))}
+          useMarkup={false}
+          wrap
+          xalign={0}
+        />
       ) : null}
       {request.blockedPath !== null ? (
         <Gtk.Label
           class="permission-warning"
-          label={`Hors des dossiers autorisés : ${request.blockedPath}`}
+          label={t((s) => s.permission.blockedPath(request.blockedPath ?? ""))}
           useMarkup={false}
           wrap
           wrapMode={Pango.WrapMode.CHAR}
@@ -111,7 +120,11 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
               <Field name={name} value={value} />
             ))}
           {request.diff !== null ? (
-            <Gtk.Expander class="raw-input" label="Entrée exacte" expanded={request.diff.truncated}>
+            <Gtk.Expander
+              class="raw-input"
+              label={t((s) => s.permission.exactInput)}
+              expanded={request.diff.truncated}
+            >
               <Gtk.Box orientation={Gtk.Orientation.VERTICAL} spacing={6}>
                 {Object.entries(request.input)
                   .filter(([name]) => CONTENT_FIELDS.has(name))
@@ -130,10 +143,15 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
           hexpand
           xalign={0}
         />
-        <Gtk.Button class="deny" label="Refuser" sensitive={answered((a) => !a)} onClicked={() => answer("deny")} />
+        <Gtk.Button
+          class="deny"
+          label={t((s) => s.permission.deny)}
+          sensitive={answered((a) => !a)}
+          onClicked={() => answer("deny")}
+        />
         <Gtk.Button
           class="allow"
-          label="Autoriser"
+          label={t((s) => s.permission.allow)}
           sensitive={canAllow}
           onClicked={() => answer("allow")}
         />

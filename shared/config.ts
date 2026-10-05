@@ -26,7 +26,20 @@ function section<T extends z.ZodRawShape>(shape: T) {
   return schema.catch(() => schema.parse({}));
 }
 
+/** Langues de l'interface ; « auto » suit la langue du système (anglais si non traduite). */
+export const LANGUAGES = ["fr", "en"] as const;
+export type Language = (typeof LANGUAGES)[number];
+
+/** Taille de la carte ouverte, en pixels : bornes communes à la config et au redimensionnement. */
+export const CARD_SIZE = {
+  width: { min: 280, max: 1200, default: 600 },
+  height: { min: 240, max: 1600, default: 380 },
+} as const;
+
 export const ConfigSchema = z.object({
+  general: section({
+    language: z.enum(["auto", ...LANGUAGES]).catch("auto"),
+  }),
   panel: section({
     /** Coin de départ ; la position choisie à la souris est ensuite mémorisée. */
     corner: Corner.catch("bottom-left"),

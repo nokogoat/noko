@@ -5,14 +5,8 @@
 import Gtk from "gi://Gtk?version=4.0";
 import Pango from "gi://Pango?version=1.0";
 import type { DiffHunk, FileDiff } from "../../shared/protocol.ts";
+import { t } from "./i18n.ts";
 import { shortenPath } from "./paths.ts";
-
-const KIND_LABEL: Record<FileDiff["kind"], string> = {
-  edit: "Modification",
-  create: "Nouveau fichier",
-  overwrite: "Fichier réécrit",
-  write: "Contenu écrit",
-};
 
 const LINE_CLASS: Record<string, string> = { "+": "diff-add", "-": "diff-del", " ": "diff-ctx" };
 
@@ -26,7 +20,7 @@ export function diffStats(diff: FileDiff): string {
       else if (line.startsWith("-")) removed++;
     }
   }
-  return `+${added} −${removed}${diff.truncated ? " (incomplet)" : ""}`;
+  return `+${added} −${removed}${diff.truncated ? ` ${t.peek().diff.incomplete}` : ""}`;
 }
 
 /** Lignes consécutives de même nature (« + », « - » ou « »). */
@@ -43,7 +37,7 @@ function runs(lines: readonly string[]): { kind: string; text: string }[] {
 
 function Hunk({ hunk, first }: { hunk: DiffHunk; first: boolean }) {
   const start = hunk.newStart ?? hunk.oldStart;
-  const header = start !== null ? `ligne ${start}` : first ? null : "…";
+  const header = start !== null ? t.peek().diff.line(start) : first ? null : "…";
   return (
     <Gtk.Box orientation={Gtk.Orientation.VERTICAL}>
       {header !== null ? <Gtk.Label class="diff-hunk" label={header} useMarkup={false} xalign={0} /> : null}
@@ -68,20 +62,20 @@ export function DiffView({ diff, header = true }: { diff: FileDiff; header?: boo
       {header ? (
         <Gtk.Label
           class="diff-title"
-          label={`${KIND_LABEL[diff.kind]} · ${shortenPath(diff.path)} · ${diffStats(diff)}`}
+          label={t((s) => `${s.diff.kind[diff.kind]} · ${shortenPath(diff.path)} · ${diffStats(diff)}`)}
           useMarkup={false}
           ellipsize={Pango.EllipsizeMode.START}
           xalign={0}
         />
       ) : null}
-      {diff.hunks.length === 0 ? <Gtk.Label class="diff-hunk" label="Aucun changement" xalign={0} /> : null}
+      {diff.hunks.length === 0 ? <Gtk.Label class="diff-hunk" label={t((s) => s.diff.noChange)} xalign={0} /> : null}
       {diff.hunks.map((hunk, i) => (
         <Hunk hunk={hunk} first={i === 0} />
       ))}
       {diff.truncated ? (
         <Gtk.Label
           class="permission-warning"
-          label="Diff trop long, coupé : seule l'entrée exacte fait foi."
+          label={t((s) => s.diff.truncated)}
           wrap
           xalign={0}
         />

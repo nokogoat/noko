@@ -7,6 +7,7 @@ import Pango from "gi://Pango?version=1.0";
 import { createComputed, createState } from "gnim";
 import type { Question, QuestionAnswers, QuestionRequest } from "../../shared/protocol.ts";
 import { answerQuestions, dismissQuestions } from "./actions.ts";
+import { t } from "./i18n.ts";
 import { claimKeyboardOnClick } from "./keyboard.ts";
 import { sessions } from "./store.ts";
 
@@ -43,7 +44,7 @@ function QuestionBlock({ question, choice, onChange }: { question: Question; cho
       <Gtk.Label class="question-text" label={question.question} useMarkup={false} wrap xalign={0} />
       <Gtk.Label
         class="question-hint"
-        label={question.multiSelect ? "Plusieurs réponses possibles" : "Une seule réponse"}
+        label={t((s) => (question.multiSelect ? s.question.multi : s.question.single))}
         xalign={0}
       />
       {question.options.map((option) => (
@@ -74,7 +75,7 @@ function QuestionBlock({ question, choice, onChange }: { question: Question; cho
       <Gtk.Box spacing={6}>
         <Gtk.CheckButton
           class="option"
-          label="Autre :"
+          label={t((s) => s.question.other)}
           $={(button) => {
             otherButton = button;
             join(button);
@@ -86,7 +87,7 @@ function QuestionBlock({ question, choice, onChange }: { question: Question; cho
         />
         <Gtk.Entry
           hexpand
-          placeholderText="Ta réponse"
+          placeholderText={t((s) => s.question.otherPlaceholder)}
           maxLength={2000}
           onChanged={(entry) => {
             choice.otherText = entry.text;
@@ -125,20 +126,20 @@ export function QuestionCard({ request }: { request: QuestionRequest }) {
 
   return (
     <Gtk.Box class="questions-card" orientation={Gtk.Orientation.VERTICAL} spacing={10}>
-      <Gtk.Label class="permission-meta" label={`${sessionName} · Claude te pose une question`} xalign={0} />
+      <Gtk.Label class="permission-meta" label={t((s) => `${sessionName} · ${s.question.asks}`)} xalign={0} />
       {request.questions.map((question, i) => (
         <QuestionBlock question={question} choice={choices[i]!} onChange={refresh} />
       ))}
       <Gtk.Box spacing={6} halign={Gtk.Align.END}>
         <Gtk.Button
           class="deny"
-          label="Ignorer"
+          label={t((s) => s.question.dismiss)}
           sensitive={sent((s) => !s)}
           onClicked={() => {
             if (dismissQuestions(request.requestId)) setSent(true);
           }}
         />
-        <Gtk.Button class="allow" label="Répondre" sensitive={canAnswer} onClicked={submit} />
+        <Gtk.Button class="allow" label={t((s) => s.question.answer)} sensitive={canAnswer} onClicked={submit} />
       </Gtk.Box>
     </Gtk.Box>
   );

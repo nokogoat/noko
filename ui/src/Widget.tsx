@@ -11,7 +11,8 @@ import { acceptImageDrops } from "./attachments.ts";
 import { Composer } from "./Composer.tsx";
 import { DiffView, diffStats } from "./DiffView.tsx";
 import { labelFactory } from "./dropdown.ts";
-import { activityText, STATUS_LABEL, usageText, usageTooltip } from "./format.ts";
+import { activityText, usageText, usageTooltip } from "./format.ts";
+import { type Strings, t } from "./i18n.ts";
 import { claimKeyboardOnClick, releaseKeyboard, releaseKeyboardWhenDone } from "./keyboard.ts";
 import { shortenPath } from "./paths.ts";
 import { PermissionCard } from "./PermissionCard.tsx";
@@ -107,9 +108,9 @@ function setupClickCatcher(app: Gtk.Application, widget: Gtk.Window): void {
 }
 
 /** Libellé d'une session dans le menu : dossier, nom et état (deux « test » se distinguent). */
-function sessionLabel(s: SessionInfo): string {
-  const where = s.source === "terminal" ? "  ·  terminal" : "";
-  return `${shortenPath(s.cwd)}  ›  ${s.name}  ·  ${STATUS_LABEL[s.status]}${where}`;
+function sessionLabel(s: SessionInfo, text: Strings): string {
+  const where = s.source === "terminal" ? `  ·  ${text.header.terminalTag}` : "";
+  return `${shortenPath(s.cwd)}  ›  ${s.name}  ·  ${text.status[s.status]}${where}`;
 }
 
 /**
@@ -121,9 +122,15 @@ function SessionPicker() {
   let ids: string[] = [];
   let syncing = false;
   // Ne reconstruit le menu que si un libellé change (pas à chaque mise à jour d'activité).
-  const labels = createMemo(() => sessions().map((s) => [s.id, sessionLabel(s)] as const), {
-    equals: (a, b) => a.length === b.length && a.every(([id, l], i) => id === b[i]?.[0] && l === b[i]?.[1]),
-  });
+  const labels = createMemo(
+    () => {
+      const text = t();
+      return sessions().map((s) => [s.id, sessionLabel(s, text)] as const);
+    },
+    {
+      equals: (a, b) => a.length === b.length && a.every(([id, l], i) => id === b[i]?.[0] && l === b[i]?.[1]),
+    },
+  );
 
   return (
     <Gtk.DropDown
@@ -135,7 +142,7 @@ function SessionPicker() {
       enableSearch
       expression={Gtk.PropertyExpression.new(Gtk.StringObject.$gtype, null, "string")}
       searchMatchMode={Gtk.StringFilterMatchMode.SUBSTRING}
-      tooltipText="Session affichée (le menu permet de chercher)"
+      tooltipText={t((s) => s.header.picker)}
       $={(self) => {
         claimKeyboardOnClick(self);
         const sync = () => {
@@ -235,7 +242,7 @@ function Conversation() {
 
 /** Ce que fait Claude en ce moment, avec un indicateur animé. */
 function ActivityLine() {
-  const text = selectedSession(activityText);
+  const text = createComputed(() => activityText(selectedSession(), t()));
   return (
     <Gtk.Box class="activity" spacing={6} visible={text((t) => t !== "")}>
       <Gtk.Spinner spinning={text((t) => t !== "")} />
@@ -247,6 +254,8 @@ function ActivityLine() {
 /** Contenu de la carte (sans fond : c'est la forme qui le dessine). */
 function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
   const usage = selectedSession((s) => s?.usage ?? null);
+  const usageLabel = createComputed(() => usageText(usage(), t()));
+  const usageTip = createComputed(() => usageTooltip(usage(), t()));
   return (
     <Gtk.Box
       class="card"
@@ -269,15 +278,15 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
         <Gtk.Button
           class="icon"
           label={composing((c) => (c ? "×" : "+"))}
-          tooltipText="Nouvelle session"
+          tooltipText={t((s) => s.header.newSession)}
           onClicked={() => setComposing(!composing.peek())}
         />
-        <Gtk.Button class="icon" label="–" tooltipText="Réduire" onClicked={close} />
+        <Gtk.Button class="icon" label="–" tooltipText={t((s) => s.header.collapse)} onClicked={close} />
       </Gtk.Box>
       <Gtk.Label
         class="usage"
-        label={usage(usageText)}
-        tooltipText={usage(usageTooltip)}
+        label={usageLabel}
+        tooltipText={usageTip}
         visible={usage((u) => u !== null)}
         xalign={0}
       />
@@ -300,15 +309,40 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
   );
 }
 
-/** État d'ensemble affiché par la pastille (et sa couleur de bordure). */
-const pillState = createComputed(() => {
-  if (connection() !== "connected") return { cls: "offline", text: "daemon absent" };
-  const pending = permissions().length;
-  if (pending > 0) return { cls: "permission", text: pending > 1 ? `${pending} autorisations` : "autorisation requise" };
-  if (questions().length > 0) return { cls: "question", text: "question pour toi" };
-  const busy = sessions().find((s) => s.status === "running" || s.status === "starting");
-  if (busy !== undefined) return { cls: "busy", text: activityText(busy) || "travaille…" };
-  return { cls: "ready", text: "prêt" };
+interface PillState {
+  /** Classe CSS (couleur du point et de la bordure). */
+  cls: string;
+  /** Session concernée (son nom : le projet, par défaut), sinon « noko ». */
+  title: string;
+  text: string;
+  /** Dossier de la session concernée, pour l'infobulle. */
+  cwd: string | null;
+}
+
+/**
+ * Ce que montre la pastille : la session qui a besoin de toi (autorisation, question),
+ * sinon celle qui travaille, sinon la plus récente, toujours avec son nom.
+ */
+const pillState = createComputed((): PillState => {
+  const text = t();
+  if (connection() !== "connected") return { cls: "offline", title: "noko", text: text.pill.offline, cwd: null };
+  const list = sessions();
+  const about = (cls: string, sessionId: string, label: string): PillState => {
+    const session = list.find((s) => s.id === sessionId);
+    return { cls, title: session?.name ?? "noko", text: label, cwd: session ? shortenPath(session.cwd) : null };
+  };
+  const pending = permissions();
+  if (pending.length > 0) return about("permission", pending[0]!.sessionId, text.pill.permission(pending.length));
+  const asked = questions();
+  if (asked.length > 0) return about("question", asked[0]!.sessionId, text.pill.question);
+  const busy = list.filter((s) => s.status === "running" || s.status === "starting");
+  if (busy.length > 0) {
+    const others = busy.length > 1 ? `  +${busy.length - 1}` : "";
+    return about("busy", busy[0]!.id, (activityText(busy[0], text) || text.activity.working) + others);
+  }
+  const latest = list[0];
+  if (latest === undefined) return { cls: "ready", title: "noko", text: text.pill.noSession, cwd: null };
+  return about("ready", latest.id, text.pill.rest[latest.status]);
 });
 
 /** Contenu de la pastille ; un clic ouvre la carte, glisser la déplace. */
@@ -317,15 +351,27 @@ function Pill({ onCreated }: { onCreated: (pill: Gtk.Box) => void }) {
     <Gtk.Box
       class={pillState((s) => `pill ${s.cls}`)}
       spacing={8}
-      tooltipText="Cliquer pour ouvrir, glisser pour déplacer"
+      tooltipText={createComputed(() => t().pill.tooltip(pillState().cwd))}
       $={(self) => {
         onCreated(self);
         makeDraggable(self, open);
       }}
     >
       <Gtk.Label class="dot" label="●" />
-      <Gtk.Label class="name" label="noko" />
-      <Gtk.Label class="state" label={pillState((s) => s.text)} useMarkup={false} />
+      <Gtk.Label
+        class="name"
+        label={pillState((s) => s.title)}
+        useMarkup={false}
+        maxWidthChars={24}
+        ellipsize={Pango.EllipsizeMode.END}
+      />
+      <Gtk.Label
+        class="state"
+        label={pillState((s) => s.text)}
+        useMarkup={false}
+        maxWidthChars={32}
+        ellipsize={Pango.EllipsizeMode.END}
+      />
     </Gtk.Box>
   );
 }

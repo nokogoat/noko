@@ -7,7 +7,6 @@ import GLib from "gi://GLib?version=2.0";
 import Gtk from "gi://Gtk?version=4.0";
 import Pango from "gi://Pango?version=1.0";
 import { createComputed, createState, For } from "gnim";
-import type { ErrorCode } from "../../shared/protocol.ts";
 import { createSession, deleteSession, focusSession, isClosed, isLiveTerminal, sendToSession, stopSession } from "./actions.ts";
 import {
   attachmentError,
@@ -17,23 +16,10 @@ import {
   takeAttachments,
 } from "./attachments.ts";
 import { labelFactory } from "./dropdown.ts";
+import { t } from "./i18n.ts";
 import { claimKeyboardOnClick } from "./keyboard.ts";
 import { homeDir, shortenPath } from "./paths.ts";
 import { composing, folders, lastError, selectedId, sessions, setComposing } from "./store.ts";
-
-const ERROR_TEXT: Record<ErrorCode, string> = {
-  invalid_message: "Message refusé par le daemon.",
-  unknown_session: "Session inconnue.",
-  session_closed: "La session est terminée.",
-  invalid_cwd: "Dossier introuvable.",
-  not_resumable: "Cette session ne peut pas être reprise.",
-  history_unavailable: "Historique indisponible.",
-  unknown_request: "Demande expirée ou déjà traitée.",
-  invalid_answers: "Réponds à toutes les questions.",
-  terminal_session: "Session en cours dans un terminal : réponds-y depuis le terminal.",
-  focus_unavailable: "Fenêtre du terminal introuvable.",
-  internal: "Erreur interne du daemon.",
-};
 
 const [formError, setFormError] = createState<string | null>(null);
 
@@ -77,7 +63,7 @@ function NewSessionForm() {
   const submit = () => {
     const cwd = selectedPath();
     if (cwd === null) {
-      report("Choisis un dossier.");
+      report(t.peek().composer.chooseFolder);
       return;
     }
     if (report(createSession(cwd, prompt.text, name.text, attachments.peek().map((a) => a.image)))) {
@@ -89,7 +75,7 @@ function NewSessionForm() {
   };
 
   const browse = () => {
-    const dialog = new Gtk.FileDialog({ title: "Dossier de la session", modal: false });
+    const dialog = new Gtk.FileDialog({ title: t.peek().composer.folderTip, modal: false });
     const current = selectedPath();
     if (current !== null) dialog.set_initial_folder(Gio.File.new_for_path(current));
     dialog.select_folder(null, null, (_src, res) => {
@@ -128,16 +114,16 @@ function NewSessionForm() {
           model={model}
           factory={labelFactory(Pango.EllipsizeMode.START)}
           listFactory={labelFactory(Pango.EllipsizeMode.NONE)}
-          tooltipText="Dossier de la session"
+          tooltipText={t((s) => s.composer.folderTip)}
           $={(self) => {
             dropdown = self;
             refresh(null);
           }}
         />
-        <Gtk.Button label="…" tooltipText="Choisir un autre dossier" onClicked={browse} />
+        <Gtk.Button label="…" tooltipText={t((s) => s.composer.browseTip)} onClicked={browse} />
       </Gtk.Box>
       <Gtk.Entry
-        placeholderText="Nom (facultatif)"
+        placeholderText={t((s) => s.composer.namePlaceholder)}
         maxLength={200}
         $={(self) => {
           name = self;
@@ -145,7 +131,7 @@ function NewSessionForm() {
         }}
       />
       <Gtk.Entry
-        placeholderText="Premier message (Ctrl+V pour une image)"
+        placeholderText={t((s) => s.composer.firstMessagePlaceholder)}
         onActivate={submit}
         $={(self) => {
           prompt = self;
@@ -154,8 +140,8 @@ function NewSessionForm() {
         }}
       />
       <Gtk.Box spacing={6} halign={Gtk.Align.END}>
-        <Gtk.Button label="Annuler" onClicked={() => setComposing(false)} />
-        <Gtk.Button class="suggested" label="Créer" onClicked={submit} />
+        <Gtk.Button label={t((s) => s.composer.cancel)} onClicked={() => setComposing(false)} />
+        <Gtk.Button class="suggested" label={t((s) => s.composer.create)} onClicked={submit} />
       </Gtk.Box>
     </Gtk.Box>
   );
@@ -184,8 +170,8 @@ function DeleteButton() {
   return (
     <Gtk.Button
       class={armed((a) => (a ? "delete armed" : "delete"))}
-      label={armed((a) => (a ? "Confirmer ?" : "Supprimer"))}
-      tooltipText="Retirer de la liste (l'historique de Claude Code est conservé)"
+      label={createComputed(() => (armed() ? t().composer.confirmDelete : t().composer.delete))}
+      tooltipText={t((s) => s.composer.deleteTip)}
       visible={canDelete}
       $={() => {
         selectedId.subscribe(disarm);
@@ -222,11 +208,13 @@ function ReplyBox() {
     }
   };
 
-  const placeholder = selectedSession((s) => {
-    if (s === null) return "Aucune session sélectionnée";
-    if (isLiveTerminal(s)) return "Session en cours dans un terminal";
-    if (!isClosed(s)) return "Répondre…";
-    return s.claudeSessionId === null ? "Session impossible à reprendre" : "Reprendre la session…";
+  const placeholder = createComputed(() => {
+    const s = selectedSession();
+    const text = t().composer;
+    if (s === null) return text.noSession;
+    if (isLiveTerminal(s)) return text.liveTerminal;
+    if (!isClosed(s)) return text.reply;
+    return s.claudeSessionId === null ? text.notResumable : text.resume;
   });
   const canSend = selectedSession(
     (s) => s !== null && !isLiveTerminal(s) && (!isClosed(s) || s.claudeSessionId !== null),
@@ -249,8 +237,8 @@ function ReplyBox() {
       />
       <Gtk.Button
         class="terminal"
-        label="Terminal"
-        tooltipText="Aller à la fenêtre du terminal"
+        label={t((s) => s.composer.terminal)}
+        tooltipText={t((s) => s.composer.terminalTip)}
         visible={inTerminal}
         onClicked={() => {
           const session = selectedSession.peek();
@@ -259,7 +247,7 @@ function ReplyBox() {
       />
       <Gtk.Button
         class="stop"
-        label="Arrêter"
+        label={t((s) => s.composer.stop)}
         visible={canStop}
         onClicked={() => {
           const session = selectedSession.peek();
@@ -283,7 +271,7 @@ function AttachmentStrip() {
               $type="overlay"
               class="remove"
               label="×"
-              tooltipText="Retirer l'image"
+              tooltipText={t((s) => s.composer.removeImage)}
               halign={Gtk.Align.END}
               valign={Gtk.Align.START}
               onClicked={() => removeAttachment(a.id)}
@@ -300,7 +288,7 @@ export function Composer() {
     const local = formError() ?? attachmentError();
     if (local !== null) return local;
     const code = lastError();
-    return code === null ? "" : ERROR_TEXT[code];
+    return code === null ? "" : t().errors[code];
   });
 
   return (

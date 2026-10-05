@@ -1,6 +1,7 @@
 // Commandes envoyées au daemon depuis l'UI.
 
 import type { ImageAttachment, QuestionAnswers, SessionInfo } from "../../shared/protocol.ts";
+import { t } from "./i18n.ts";
 import { DaemonClient } from "./ipc.ts";
 import { expandHome } from "./paths.ts";
 import {
@@ -46,8 +47,8 @@ export function createSession(
   images: readonly ImageAttachment[] = [],
 ): string | null {
   const path = expandHome(cwd);
-  if (!path.startsWith("/")) return "Le dossier doit être un chemin absolu.";
-  if (prompt.trim() === "") return "Écris un premier message.";
+  if (!path.startsWith("/")) return t.peek().composer.absolutePath;
+  if (prompt.trim() === "") return t.peek().composer.writeFirstMessage;
   setLastError(null);
   expectNewSession();
   const trimmedName = name.trim();
@@ -58,7 +59,7 @@ export function createSession(
     ...(images.length > 0 ? { images: [...images] } : {}),
     ...(trimmedName !== "" ? { name: trimmedName } : {}),
   });
-  return sent ? null : "Message refusé (daemon absent ou champ invalide).";
+  return sent ? null : t.peek().composer.refused;
 }
 
 /** Envoie un message à la session : simple envoi si elle tourne, reprise sinon. */
@@ -67,7 +68,7 @@ export function sendToSession(
   text: string,
   images: readonly ImageAttachment[] = [],
 ): string | null {
-  if (text.trim() === "") return images.length > 0 ? "Ajoute un message avec les images." : null;
+  if (text.trim() === "") return images.length > 0 ? t.peek().composer.addTextToImages : null;
   setLastError(null);
   const type = isClosed(session) ? "session.resume" : "session.send";
   const sent = client.send({
@@ -76,7 +77,7 @@ export function sendToSession(
     text,
     ...(images.length > 0 ? { images: [...images] } : {}),
   });
-  return sent ? null : "Message refusé (daemon absent ou champ invalide).";
+  return sent ? null : t.peek().composer.refused;
 }
 
 export function stopSession(session: SessionInfo): void {
