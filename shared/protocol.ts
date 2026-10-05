@@ -43,6 +43,12 @@ export const SessionInfo = z.strictObject({
 });
 export type SessionInfo = z.infer<typeof SessionInfo>;
 
+export const HistoryMessage = z.strictObject({
+  role: z.enum(["user", "assistant"]),
+  text: z.string(),
+});
+export type HistoryMessage = z.infer<typeof HistoryMessage>;
+
 // --- UI → daemon -----------------------------------------------------------
 
 export const ClientMessage = z.discriminatedUnion("type", [
@@ -58,8 +64,19 @@ export const ClientMessage = z.discriminatedUnion("type", [
     sessionId: SessionId,
     text: UserText,
   }),
+  /** Relance une session terminée (ou d'une session précédente du daemon) avec un message. */
+  z.strictObject({
+    type: z.literal("session.resume"),
+    sessionId: SessionId,
+    text: UserText,
+  }),
   z.strictObject({
     type: z.literal("session.stop"),
+    sessionId: SessionId,
+  }),
+  /** Demande l'historique d'une session, lu dans les transcripts de Claude Code. */
+  z.strictObject({
+    type: z.literal("session.history"),
     sessionId: SessionId,
   }),
 ]);
@@ -72,6 +89,8 @@ export const ErrorCode = z.enum([
   "unknown_session",
   "session_closed",
   "invalid_cwd",
+  "not_resumable", // aucun identifiant de session Claude Code connu
+  "history_unavailable",
   "internal",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
@@ -91,11 +110,23 @@ export const ServerMessage = z.discriminatedUnion("type", [
     sessionId: SessionId,
     text: z.string(),
   }),
+  /** Message envoyé par l'utilisateur (renvoyé à toutes les UI connectées). */
+  z.strictObject({
+    type: z.literal("message.user"),
+    sessionId: SessionId,
+    text: z.string(),
+  }),
   /** Texte complet d'un message de Claude, une fois terminé. */
   z.strictObject({
     type: z.literal("message.complete"),
     sessionId: SessionId,
     text: z.string(),
+  }),
+  /** Historique d'une session : les derniers messages, du plus ancien au plus récent. */
+  z.strictObject({
+    type: z.literal("session.history"),
+    sessionId: SessionId,
+    messages: z.array(HistoryMessage),
   }),
   z.strictObject({
     type: z.literal("error"),

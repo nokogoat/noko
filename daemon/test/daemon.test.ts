@@ -8,7 +8,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { ServerMessage } from "../../shared/protocol.ts";
 import type { SessionEvents, StartSession } from "../src/claude-session.ts";
-import { Daemon } from "../src/daemon.ts";
+import { Daemon, type DaemonDeps } from "../src/daemon.ts";
+import type { LoadHistory } from "../src/history.ts";
+import { SessionStore } from "../src/session-store.ts";
 import { SocketPathError } from "../src/ipc-server.ts";
 
 /** Client de test : envoie des lignes brutes et attend des messages. */
@@ -85,6 +87,7 @@ class Client {
 interface FakeSession {
   cwd: string;
   prompt: string;
+  resume: string | undefined;
   sent: string[];
   stopped: boolean;
   events: SessionEvents;
@@ -94,8 +97,9 @@ let dir: string;
 let path: string;
 let daemon: Daemon;
 let fakes: FakeSession[];
-const startFake: StartSession = ({ cwd, prompt, events }) => {
-  const fake: FakeSession = { cwd, prompt, sent: [], stopped: false, events };
+let store: SessionStore;
+const startFake: StartSession = ({ cwd, prompt, resume, events }) => {
+  const fake: FakeSession = { cwd, prompt, resume, sent: [], stopped: false, events };
   fakes.push(fake);
   return {
     send: (text) => fake.sent.push(text),
@@ -105,16 +109,28 @@ const startFake: StartSession = ({ cwd, prompt, events }) => {
   };
 };
 
+const fakeHistory: LoadHistory = async (claudeSessionId) => {
+  if (claudeSessionId === "casse") throw new Error("illisible");
+  return [
+    { role: "user", text: "question" },
+    { role: "assistant", text: "réponse" },
+  ];
+};
+
+const deps = (): DaemonDeps => ({ startSession: startFake, loadHistory: fakeHistory, store });
+
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "noko-test-"));
   path = join(dir, "noko.sock");
   fakes = [];
-  daemon = new Daemon(path, startFake, { maxConnections: 3, maxLineBytes: 4096 });
+  store = new SessionStore(join(dir, "data"));
+  daemon = new Daemon(path, deps(), { maxConnections: 3, maxLineBytes: 4096 });
   await daemon.start();
 });
 
 afterEach(async () => {
   await daemon.stop();
+  store.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -127,7 +143,7 @@ test("la socket est créée en 0600 et supprimée à l'arrêt", async () => {
 });
 
 test("refuse de démarrer si un daemon tourne déjà", async () => {
-  const second = new Daemon(path, startFake);
+  const second = new Daemon(path, deps());
   await assert.rejects(second.start(), SocketPathError);
   // Le premier daemon répond toujours.
   const c = await Client.connect(path);
@@ -147,15 +163,15 @@ test("supprime une socket morte et refuse un fichier ordinaire", async () => {
   child.kill("SIGKILL");
   await once(child, "exit");
   assert.ok(lstatSync(path).isSocket());
-  daemon = new Daemon(path, startFake);
+  daemon = new Daemon(path, deps());
   await daemon.start();
   await daemon.stop();
 
   writeFileSync(path, "");
-  daemon = new Daemon(path, startFake);
+  daemon = new Daemon(path, deps());
   await assert.rejects(daemon.start(), SocketPathError);
   rmSync(path);
-  daemon = new Daemon(path, startFake);
+  daemon = new Daemon(path, deps());
   await daemon.start();
 });
 
@@ -247,5 +263,110 @@ test("erreurs : dossier introuvable, session inconnue, fin sur erreur", async ()
   await c.next("session.update", (m) => m.session.status === "starting");
   fakes[0]!.events.onExit(new Error("boom"));
   await c.next("session.update", (m) => m.session.status === "error");
+  c.sock.destroy();
+});
+
+test("le message de l'utilisateur est renvoyé à toutes les UI", async () => {
+  const a = await Client.connect(path);
+  const b = await Client.connect(path);
+  a.send({ type: "session.create", cwd: dir, prompt: "premier" });
+  assert.equal((await b.next("message.user")).text, "premier");
+  const id = (await a.next("session.update")).session.id;
+  fakes[0]!.events.onInit("c1");
+  a.send({ type: "session.send", sessionId: id, text: "second" });
+  assert.equal((await b.next("message.user", (m) => m.text === "second")).sessionId, id);
+  a.sock.destroy();
+  b.sock.destroy();
+});
+
+test("reprise d'une session arrêtée", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  const id = (await c.next("session.update")).session.id;
+  const first = fakes[0]!;
+  first.events.onInit("claude-1");
+  c.send({ type: "session.stop", sessionId: id });
+  await c.next("session.update", (m) => m.session.status === "stopped");
+
+  c.send({ type: "session.resume", sessionId: id, text: "on reprend" });
+  await c.next("session.update", (m) => m.session.status === "starting" && m.session.id === id);
+  assert.equal(fakes.length, 2);
+  const second = fakes[1]!;
+  assert.equal(second.resume, "claude-1");
+  assert.equal(second.prompt, "on reprend");
+
+  // Les événements de l'exécution précédente n'ont plus d'effet.
+  first.events.onExit(new Error("tardif"));
+  second.events.onInit("claude-1");
+  await c.next("session.update", (m) => m.session.status === "running");
+  c.send({ type: "state.get" });
+  assert.equal((await c.next("state.snapshot")).sessions[0]!.status, "running");
+
+  // Reprendre une session active revient à lui envoyer le message.
+  c.send({ type: "session.resume", sessionId: id, text: "encore" });
+  await c.next("message.user", (m) => m.text === "encore");
+  assert.deepEqual(second.sent, ["encore"]);
+  assert.equal(fakes.length, 2);
+  c.sock.destroy();
+});
+
+test("une session sans identifiant Claude ne peut pas être reprise", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  const id = (await c.next("session.update")).session.id;
+  c.send({ type: "session.stop", sessionId: id });
+  await c.next("session.update", (m) => m.session.status === "stopped");
+  c.send({ type: "session.resume", sessionId: id, text: "y" });
+  assert.equal((await c.next("error")).code, "not_resumable");
+  c.sock.destroy();
+});
+
+test("la liste des sessions survit à un redémarrage du daemon", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x", name: "persistante" });
+  const id = (await c.next("session.update")).session.id;
+  fakes[0]!.events.onInit("claude-p");
+  await c.next("session.update", (m) => m.session.status === "running");
+  c.sock.destroy();
+
+  await daemon.stop();
+  store.close();
+  store = new SessionStore(join(dir, "data"));
+  daemon = new Daemon(path, deps());
+  await daemon.start();
+
+  const d = await Client.connect(path);
+  d.send({ type: "state.get" });
+  const [session] = (await d.next("state.snapshot")).sessions;
+  assert.equal(session?.id, id);
+  assert.equal(session?.name, "persistante");
+  assert.equal(session?.claudeSessionId, "claude-p");
+  assert.equal(session?.status, "stopped");
+  d.sock.destroy();
+});
+
+test("historique d'une session", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  const id = (await c.next("session.update")).session.id;
+
+  // Pas encore d'identifiant Claude : historique vide.
+  c.send({ type: "session.history", sessionId: id });
+  assert.deepEqual((await c.next("session.history")).messages, []);
+
+  fakes[0]!.events.onInit("claude-h");
+  c.send({ type: "session.history", sessionId: id });
+  const history = await c.next("session.history");
+  assert.equal(history.sessionId, id);
+  assert.deepEqual(history.messages, [
+    { role: "user", text: "question" },
+    { role: "assistant", text: "réponse" },
+  ]);
+
+  c.send({ type: "session.create", cwd: dir, prompt: "y" });
+  const other = (await c.next("session.update", (m) => m.session.id !== id)).session.id;
+  fakes[1]!.events.onInit("casse");
+  c.send({ type: "session.history", sessionId: other });
+  assert.equal((await c.next("error")).code, "history_unavailable");
   c.sock.destroy();
 });
