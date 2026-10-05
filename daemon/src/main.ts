@@ -14,16 +14,19 @@ function fail(err: unknown): never {
 }
 
 async function main(): Promise<void> {
-  // Tout fichier créé par le daemon (base SQLite, journaux WAL…) est privé.
-  process.umask(0o077);
-
   let socketPath: string;
   let store: SessionStore;
+  // umask restreint uniquement pendant la création de la base (SQLite donne ensuite à ses
+  // journaux les droits de la base). Pas de umask global : il serait hérité par Claude
+  // Code, et tous les fichiers créés dans les projets de l'utilisateur seraient en 0600.
+  const previousUmask = process.umask(0o077);
   try {
     socketPath = resolveSocketPath();
     store = new SessionStore(dataDir());
   } catch (err) {
     fail(err);
+  } finally {
+    process.umask(previousUmask);
   }
 
   const daemon = new Daemon(socketPath, { startSession: startClaudeSession, loadHistory, store });
