@@ -8,6 +8,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { Decision, PermissionAsk } from "./permissions.ts";
 import { settingSourcesFor } from "./trust.ts";
 
 export interface SessionEvents {
@@ -18,6 +19,8 @@ export interface SessionEvents {
   onTurnEnd(isError: boolean): void;
   /** Fin de la session ; `error` est défini si elle s'est terminée sur une erreur. */
   onExit(error?: unknown): void;
+  /** Demande d'autorisation d'un outil : la décision vient de l'utilisateur, dans l'UI. */
+  requestPermission(ask: PermissionAsk, signal: AbortSignal): Promise<Decision>;
 }
 
 export interface RunningSession {
@@ -81,12 +84,40 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   }
 }
 
-// Étape 1 de la feuille de route : aucune approbation possible depuis noko.
-// Tout outil qui demanderait une permission est refusé (l'étape 4 branchera l'UI ici).
-const denyAll: CanUseTool = async () => ({
-  behavior: "deny",
-  message: "noko ne gère pas encore les permissions : outil refusé.",
-});
+const DENIED_BY_USER = "Refusé par l'utilisateur dans noko.";
+
+/**
+ * Relaye chaque demande d'autorisation vers l'UI. Toute erreur donne un refus.
+ * Jamais d'`updatedInput` ni de règle « toujours autoriser » : seule cette exécution
+ * précise, avec cette entrée exacte, est autorisée.
+ */
+export function permissionHandler(events: SessionEvents): CanUseTool {
+  return async (toolName, input, options) => {
+    // Les questions interactives attendent des réponses dans `updatedInput` : pas encore gérées.
+    if (toolName === "AskUserQuestion") {
+      return {
+        behavior: "deny",
+        message: "noko ne gère pas encore les questions interactives : pose ta question dans ta réponse.",
+      };
+    }
+    try {
+      const decision = await events.requestPermission(
+        {
+          toolName,
+          input,
+          title: options.title ?? null,
+          reason: options.decisionReason ?? null,
+          blockedPath: options.blockedPath ?? null,
+        },
+        options.signal,
+      );
+      if (decision === "allow") return { behavior: "allow" };
+    } catch {
+      // refus ci-dessous
+    }
+    return { behavior: "deny", message: DENIED_BY_USER };
+  };
+}
 
 function assistantText(msg: Extract<SDKMessage, { type: "assistant" }>): string {
   const parts: string[] = [];
@@ -113,7 +144,7 @@ export const startClaudeSession: StartSession = ({ cwd, prompt, resume, events }
         abortController,
         // Toujours explicite : le défaut peut être `auto`. Voir CLAUDE.md, section Sécurité.
         permissionMode: "default",
-        canUseTool: denyAll,
+        canUseTool: permissionHandler(events),
         settingSources,
         systemPrompt: { type: "preset", preset: "claude_code" },
         includePartialMessages: true,

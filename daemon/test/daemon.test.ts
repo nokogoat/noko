@@ -124,7 +124,7 @@ beforeEach(async () => {
   path = join(dir, "noko.sock");
   fakes = [];
   store = new SessionStore(join(dir, "data"));
-  daemon = new Daemon(path, deps(), { maxConnections: 3, maxLineBytes: 4096 });
+  daemon = new Daemon(path, deps(), { limits: { maxConnections: 3, maxLineBytes: 4096 } });
   await daemon.start();
 });
 
@@ -178,7 +178,7 @@ test("supprime une socket morte et refuse un fichier ordinaire", async () => {
 test("state.get renvoie un instantané vide au départ", async () => {
   const c = await Client.connect(path);
   c.send({ type: "state.get" });
-  assert.deepEqual(await c.next("state.snapshot"), { type: "state.snapshot", sessions: [] });
+  assert.deepEqual(await c.next("state.snapshot"), { type: "state.snapshot", sessions: [], permissions: [] });
   c.sock.destroy();
 });
 
@@ -368,5 +368,67 @@ test("historique d'une session", async () => {
   fakes[1]!.events.onInit("casse");
   c.send({ type: "session.history", sessionId: other });
   assert.equal((await c.next("error")).code, "history_unavailable");
+  c.sock.destroy();
+});
+
+test("permissions : demande, réponse unique, instantané et annulation", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  const id = (await c.next("session.update")).session.id;
+  const fake = fakes[0]!;
+  fake.events.onInit("claude-perm");
+
+  const decision = fake.events.requestPermission(
+    { toolName: "Bash", input: { command: "rm -rf build" }, title: "Claude veut lancer une commande", reason: null, blockedPath: null },
+    new AbortController().signal,
+  );
+  const { request } = await c.next("permission.request");
+  assert.equal(request.sessionId, id);
+  assert.deepEqual(request.input, { command: "rm -rf build" });
+
+  // Une UI qui (re)démarre voit la demande en attente.
+  c.send({ type: "state.get" });
+  assert.deepEqual((await c.next("state.snapshot")).permissions, [request]);
+
+  c.send({ type: "permission.answer", requestId: request.requestId, decision: "allow" });
+  assert.equal(await decision, "allow");
+  assert.equal((await c.next("permission.resolved")).outcome, "allowed");
+
+  c.send({ type: "permission.answer", requestId: request.requestId, decision: "allow" });
+  assert.equal((await c.next("error")).code, "unknown_request");
+
+  // Arrêter la session refuse ses demandes en attente.
+  const pending = fake.events.requestPermission(
+    { toolName: "Write", input: { file_path: "/srv/x", content: "y" }, title: null, reason: null, blockedPath: null },
+    new AbortController().signal,
+  );
+  await c.next("permission.request");
+  c.send({ type: "session.stop", sessionId: id });
+  assert.equal(await pending, "deny");
+  assert.equal((await c.next("permission.resolved")).outcome, "cancelled");
+
+  // Une session terminée ne peut plus rien demander.
+  assert.equal(
+    await fake.events.requestPermission(
+      { toolName: "Bash", input: {}, title: null, reason: null, blockedPath: null },
+      new AbortController().signal,
+    ),
+    "deny",
+  );
+  c.sock.destroy();
+});
+
+test("permissions : entrée trop grosse pour être affichée → refus immédiat", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  await c.next("session.update");
+  const huge = { file_path: "/srv/x", content: "y".repeat(800 * 1024) };
+  const decision = await fakes[0]!.events.requestPermission(
+    { toolName: "Write", input: huge, title: null, reason: null, blockedPath: null },
+    new AbortController().signal,
+  );
+  assert.equal(decision, "deny");
+  c.send({ type: "state.get" });
+  assert.deepEqual((await c.next("state.snapshot")).permissions, []);
   c.sock.destroy();
 });

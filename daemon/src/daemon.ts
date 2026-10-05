@@ -9,6 +9,7 @@ import type { RunningSession, StartSession } from "./claude-session.ts";
 import type { LoadHistory } from "./history.ts";
 import { IpcServer, type Connection, type IpcLimits } from "./ipc-server.ts";
 import { errorFields, log } from "./log.ts";
+import { PermissionBroker, type Decision, type PermissionAsk } from "./permissions.ts";
 
 /** Persistance de la liste des sessions (SessionStore en production). */
 export interface SessionPersistence {
@@ -31,6 +32,16 @@ interface SessionRecord {
 
 const CLOSED: ReadonlySet<SessionStatus> = new Set(["stopped", "error"]);
 
+/** Sans réponse dans ce délai, la demande d'autorisation est refusée. */
+export const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
+/** Entrée d'outil trop grosse pour être affichée en entier : refusée d'office. */
+const MAX_PERMISSION_INPUT_BYTES = 768 * 1024;
+
+export interface DaemonOptions {
+  limits?: Partial<IpcLimits>;
+  permissionTimeoutMs?: number;
+}
+
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
@@ -43,10 +54,30 @@ export class Daemon {
   private readonly ipc: IpcServer;
   private readonly deps: DaemonDeps;
   private readonly sessions = new Map<string, SessionRecord>();
+  private readonly permissions: PermissionBroker;
 
-  constructor(socketPath: string, deps: DaemonDeps, limits: Partial<IpcLimits> = {}) {
+  constructor(socketPath: string, deps: DaemonDeps, options: DaemonOptions = {}) {
     this.deps = deps;
-    this.ipc = new IpcServer(socketPath, { onMessage: (conn, msg) => this.handle(conn, msg) }, limits);
+    this.ipc = new IpcServer(
+      socketPath,
+      { onMessage: (conn, msg) => this.handle(conn, msg) },
+      options.limits ?? {},
+    );
+    this.permissions = new PermissionBroker(options.permissionTimeoutMs ?? PERMISSION_TIMEOUT_MS, {
+      onRequest: (request) => {
+        log("permission.requested", { session: request.sessionId, request: request.requestId });
+        this.ipc.broadcast({ type: "permission.request", request });
+      },
+      onResolved: (request, outcome) => {
+        log("permission.resolved", { session: request.sessionId, request: request.requestId, outcome });
+        this.ipc.broadcast({
+          type: "permission.resolved",
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          outcome,
+        });
+      },
+    });
   }
 
   start(): Promise<void> {
@@ -57,6 +88,7 @@ export class Daemon {
   }
 
   async stop(): Promise<void> {
+    this.permissions.cancelAll();
     for (const record of this.sessions.values()) record.runner?.stop();
     await this.ipc.stop();
   }
@@ -64,7 +96,7 @@ export class Daemon {
   private async handle(conn: Connection, msg: ClientMessage): Promise<void> {
     switch (msg.type) {
       case "state.get":
-        conn.send({ type: "state.snapshot", sessions: this.snapshot() });
+        conn.send({ type: "state.snapshot", sessions: this.snapshot(), permissions: this.permissions.list() });
         return;
       case "session.create":
         this.create(conn, msg.cwd, msg.prompt, msg.name);
@@ -109,11 +141,17 @@ export class Daemon {
         if (record === null) return;
         const runner = record.runner;
         record.runner = null;
+        this.permissions.cancelSession(record.info.id);
         runner?.stop();
         this.update(record, "stopped");
         log("session.stopped", { session: record.info.id });
         return;
       }
+      case "permission.answer":
+        if (!this.permissions.answer(msg.requestId, msg.decision)) {
+          conn.send({ type: "error", code: "unknown_request", message: "demande inconnue ou expirée" });
+        }
+        return;
       case "session.history": {
         const record = this.find(conn, msg.sessionId);
         if (record === null) return;
@@ -188,9 +226,14 @@ export class Daemon {
           if (isError) log("session.turn_error", { session: id });
           this.update(record, "idle");
         },
+        requestPermission: (ask, signal) => {
+          if (!live()) return Promise.resolve<Decision>("deny");
+          return this.requestPermission(id, ask, signal);
+        },
         onExit: (error) => {
           if (!live()) return;
           record.runner = null;
+          this.permissions.cancelSession(id);
           if (error === undefined) {
             log("session.exited", { session: id });
             this.update(record, "stopped");
@@ -201,6 +244,21 @@ export class Daemon {
         },
       },
     });
+  }
+
+  private requestPermission(sessionId: string, ask: PermissionAsk, signal: AbortSignal): Promise<Decision> {
+    let size: number;
+    try {
+      size = Buffer.byteLength(JSON.stringify(ask.input));
+    } catch {
+      size = Infinity;
+    }
+    if (size > MAX_PERMISSION_INPUT_BYTES) {
+      // L'UI doit montrer l'entrée exacte : si elle ne peut pas, on refuse.
+      log("permission.too_large", { session: sessionId, tool: ask.toolName });
+      return Promise.resolve("deny");
+    }
+    return this.permissions.request(sessionId, ask, signal);
   }
 
   private find(conn: Connection, sessionId: string): SessionRecord | null {

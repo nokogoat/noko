@@ -49,6 +49,32 @@ export const HistoryMessage = z.strictObject({
 });
 export type HistoryMessage = z.infer<typeof HistoryMessage>;
 
+/** Demande d'autorisation d'un outil, avec son entrée exacte (jamais un résumé). */
+export const PermissionRequest = z.strictObject({
+  requestId: z.uuid(),
+  sessionId: SessionId,
+  toolName: z.string().min(1).max(256),
+  /** Entrée de l'outil, telle que Claude Code l'exécutera. */
+  input: z.record(z.string(), z.json()),
+  /** Phrase fournie par Claude Code (ex. « Claude wants to read foo.txt »). */
+  title: z.string().max(4096).nullable(),
+  /** Pourquoi Claude Code demande l'autorisation. */
+  reason: z.string().max(4096).nullable(),
+  /** Chemin hors des dossiers autorisés qui a déclenché la demande. */
+  blockedPath: z.string().max(4096).nullable(),
+  /** Au-delà (millisecondes depuis l'époque Unix), la demande est refusée. */
+  expiresAt: z.number().int().nonnegative(),
+});
+export type PermissionRequest = z.infer<typeof PermissionRequest>;
+
+export const PermissionOutcome = z.enum([
+  "allowed",
+  "denied",
+  "timeout", // pas de réponse à temps : refusée
+  "cancelled", // session arrêtée ou tour interrompu : refusée
+]);
+export type PermissionOutcome = z.infer<typeof PermissionOutcome>;
+
 // --- UI → daemon -----------------------------------------------------------
 
 export const ClientMessage = z.discriminatedUnion("type", [
@@ -79,6 +105,12 @@ export const ClientMessage = z.discriminatedUnion("type", [
     type: z.literal("session.history"),
     sessionId: SessionId,
   }),
+  /** Réponse à une demande d'autorisation en attente (usage unique). */
+  z.strictObject({
+    type: z.literal("permission.answer"),
+    requestId: z.uuid(),
+    decision: z.enum(["allow", "deny"]),
+  }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -91,6 +123,7 @@ export const ErrorCode = z.enum([
   "invalid_cwd",
   "not_resumable", // aucun identifiant de session Claude Code connu
   "history_unavailable",
+  "unknown_request", // demande d'autorisation inconnue, expirée ou déjà traitée
   "internal",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
@@ -99,6 +132,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("state.snapshot"),
     sessions: z.array(SessionInfo),
+    permissions: z.array(PermissionRequest),
   }),
   z.strictObject({
     type: z.literal("session.update"),
@@ -127,6 +161,17 @@ export const ServerMessage = z.discriminatedUnion("type", [
     type: z.literal("session.history"),
     sessionId: SessionId,
     messages: z.array(HistoryMessage),
+  }),
+  z.strictObject({
+    type: z.literal("permission.request"),
+    request: PermissionRequest,
+  }),
+  /** La demande n'est plus en attente (réponse, expiration ou annulation). */
+  z.strictObject({
+    type: z.literal("permission.resolved"),
+    requestId: z.uuid(),
+    sessionId: SessionId,
+    outcome: PermissionOutcome,
   }),
   z.strictObject({
     type: z.literal("error"),
