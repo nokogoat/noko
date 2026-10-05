@@ -24,6 +24,8 @@ export function activityText(session: SessionInfo | undefined): string {
         return `Outil : ${activity.tool}…`;
       case "permission":
         return "Attend ton autorisation";
+      case "question":
+        return "Te pose une question";
       case "compacting":
         return "Compacte le contexte…";
     }

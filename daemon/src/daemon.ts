@@ -10,6 +10,7 @@ import type { LoadHistory } from "./history.ts";
 import { IpcServer, type Connection, type IpcLimits } from "./ipc-server.ts";
 import { errorFields, log } from "./log.ts";
 import { PermissionBroker, type Decision, type PermissionAsk } from "./permissions.ts";
+import { QuestionBroker } from "./questions.ts";
 
 /** Persistance de la liste des sessions (SessionStore en production). */
 export interface SessionPersistence {
@@ -34,12 +35,15 @@ const CLOSED: ReadonlySet<SessionStatus> = new Set(["stopped", "error"]);
 
 /** Sans réponse dans ce délai, la demande d'autorisation est refusée. */
 export const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
+/** Sans réponse dans ce délai, les questions sont abandonnées (Claude en est informé). */
+export const QUESTION_TIMEOUT_MS = 30 * 60 * 1000;
 /** Entrée d'outil trop grosse pour être affichée en entier : refusée d'office. */
 const MAX_PERMISSION_INPUT_BYTES = 768 * 1024;
 
 export interface DaemonOptions {
   limits?: Partial<IpcLimits>;
   permissionTimeoutMs?: number;
+  questionTimeoutMs?: number;
 }
 
 function isDirectory(path: string): boolean {
@@ -55,6 +59,7 @@ export class Daemon {
   private readonly deps: DaemonDeps;
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly permissions: PermissionBroker;
+  private readonly questions: QuestionBroker;
 
   constructor(socketPath: string, deps: DaemonDeps, options: DaemonOptions = {}) {
     this.deps = deps;
@@ -78,6 +83,21 @@ export class Daemon {
         });
       },
     });
+    this.questions = new QuestionBroker(options.questionTimeoutMs ?? QUESTION_TIMEOUT_MS, {
+      onRequest: (request) => {
+        log("question.requested", { session: request.sessionId, request: request.requestId });
+        this.ipc.broadcast({ type: "question.request", request });
+      },
+      onResolved: (request, outcome) => {
+        log("question.resolved", { session: request.sessionId, request: request.requestId, outcome });
+        this.ipc.broadcast({
+          type: "question.resolved",
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          outcome,
+        });
+      },
+    });
   }
 
   start(): Promise<void> {
@@ -89,6 +109,7 @@ export class Daemon {
 
   async stop(): Promise<void> {
     this.permissions.cancelAll();
+    this.questions.cancelAll();
     for (const record of this.sessions.values()) record.runner?.stop();
     await this.ipc.stop();
   }
@@ -96,7 +117,12 @@ export class Daemon {
   private async handle(conn: Connection, msg: ClientMessage): Promise<void> {
     switch (msg.type) {
       case "state.get":
-        conn.send({ type: "state.snapshot", sessions: this.snapshot(), permissions: this.permissions.list() });
+        conn.send({
+          type: "state.snapshot",
+          sessions: this.snapshot(),
+          permissions: this.permissions.list(),
+          questions: this.questions.list(),
+        });
         return;
       case "session.create":
         this.create(conn, msg.cwd, { text: msg.prompt, images: msg.images ?? [] }, msg.name);
@@ -138,6 +164,7 @@ export class Daemon {
         const runner = record.runner;
         record.runner = null;
         this.permissions.cancelSession(record.info.id);
+        this.questions.cancelSession(record.info.id);
         runner?.stop();
         this.update(record, "stopped");
         log("session.stopped", { session: record.info.id });
@@ -146,6 +173,20 @@ export class Daemon {
       case "permission.answer":
         if (!this.permissions.answer(msg.requestId, msg.decision)) {
           conn.send({ type: "error", code: "unknown_request", message: "demande inconnue ou expirée" });
+        }
+        return;
+      case "question.answer": {
+        const result = this.questions.answer(msg.requestId, msg.answers);
+        if (result === "unknown") {
+          conn.send({ type: "error", code: "unknown_request", message: "question inconnue ou expirée" });
+        } else if (result === "invalid") {
+          conn.send({ type: "error", code: "invalid_answers", message: "réponses incomplètes" });
+        }
+        return;
+      }
+      case "question.dismiss":
+        if (!this.questions.dismiss(msg.requestId)) {
+          conn.send({ type: "error", code: "unknown_request", message: "question inconnue ou expirée" });
         }
         return;
       case "session.history": {
@@ -249,6 +290,18 @@ export class Daemon {
           record.info.usage = usage;
           this.publish(record);
         },
+        askQuestions: async (questions, signal) => {
+          if (!live()) return null;
+          const previous = record.info.activity;
+          record.info.activity = { kind: "question" };
+          this.publish(record);
+          const answers = await this.questions.ask(id, questions, signal);
+          if (live() && record.info.activity?.kind === "question") {
+            record.info.activity = previous;
+            this.publish(record);
+          }
+          return answers;
+        },
         requestPermission: async (ask, signal) => {
           if (!live()) return "deny";
           const previous = record.info.activity;
@@ -265,6 +318,7 @@ export class Daemon {
           if (!live()) return;
           record.runner = null;
           this.permissions.cancelSession(id);
+          this.questions.cancelSession(id);
           if (error === undefined) {
             log("session.exited", { session: id });
             this.update(record, "stopped");

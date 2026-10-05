@@ -104,7 +104,10 @@ test("une entrée non représentable en JSON est refusée sans être publiée", 
 test("le handler SDK n'autorise que sur décision explicite, sans modifier l'entrée", async () => {
   const signal = new AbortController().signal;
   const options = { signal, toolUseID: "t1", requestId: "r1" };
-  const events = (decide: () => Promise<"allow" | "deny">): SessionEvents => ({
+  const events = (
+    decide: () => Promise<"allow" | "deny">,
+    ask: SessionEvents["askQuestions"] = async () => null,
+  ): SessionEvents => ({
     onInit() {},
     onDelta() {},
     onAssistantText() {},
@@ -113,6 +116,7 @@ test("le handler SDK n'autorise que sur décision explicite, sans modifier l'ent
     onActivity() {},
     onToolUse() {},
     onUsage() {},
+    askQuestions: ask,
     requestPermission: decide,
   });
 
@@ -125,13 +129,33 @@ test("le handler SDK n'autorise que sur décision explicite, sans modifier l'ent
   const failing = await permissionHandler(events(() => Promise.reject(new Error("x"))))("Bash", {}, options);
   assert.equal(failing?.behavior, "deny");
 
+  // Questions : seul le champ `answers` est ajouté, avec les réponses de l'utilisateur.
+  const input = {
+    questions: [
+      { question: "Quel style ?", header: "Style", multiSelect: false, options: [{ label: "A", description: "" }] },
+    ],
+  };
+  const answered = await permissionHandler(
+    events(
+      async () => "allow",
+      async () => ({ "Quel style ?": "A" }),
+    ),
+  )("AskUserQuestion", input, options);
+  assert.deepEqual(answered, { behavior: "allow", updatedInput: { ...input, answers: { "Quel style ?": "A" } } });
+
+  const ignored = await permissionHandler(events(async () => "allow"))("AskUserQuestion", input, options);
+  assert.equal(ignored?.behavior, "deny");
+
   let asked = false;
-  const question = await permissionHandler(
-    events(async () => {
-      asked = true;
-      return "allow";
-    }),
-  )("AskUserQuestion", {}, options);
-  assert.equal(question?.behavior, "deny");
+  const malformed = await permissionHandler(
+    events(
+      async () => "allow",
+      async () => {
+        asked = true;
+        return { x: "y" };
+      },
+    ),
+  )("AskUserQuestion", { questions: "pas une liste" }, options);
+  assert.equal(malformed?.behavior, "deny");
   assert.equal(asked, false);
 });

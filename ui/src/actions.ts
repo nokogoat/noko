@@ -1,6 +1,6 @@
 // Commandes envoyées au daemon depuis l'UI.
 
-import type { ImageAttachment, SessionInfo } from "../../shared/protocol.ts";
+import type { ImageAttachment, QuestionAnswers, SessionInfo } from "../../shared/protocol.ts";
 import { DaemonClient } from "./ipc.ts";
 import { expandHome } from "./paths.ts";
 import {
@@ -12,6 +12,7 @@ import {
   setConnection,
   setLastError,
   setPermissions,
+  setQuestions,
   transcriptOf,
 } from "./store.ts";
 
@@ -22,6 +23,7 @@ export const client = new DaemonClient({
       historyRequested.clear();
       // Demandes périmées : l'instantané reçu à la reconnexion fait foi.
       setPermissions([]);
+      setQuestions([]);
     }
   },
   onMessage: applyMessage,
@@ -97,4 +99,12 @@ export function loadSelectedHistory(): void {
 
 export function answerPermission(requestId: string, decision: "allow" | "deny"): boolean {
   return client.send({ type: "permission.answer", requestId, decision });
+}
+
+export function answerQuestions(requestId: string, answers: QuestionAnswers): boolean {
+  return client.send({ type: "question.answer", requestId, answers });
+}
+
+export function dismissQuestions(requestId: string): boolean {
+  return client.send({ type: "question.dismiss", requestId });
 }

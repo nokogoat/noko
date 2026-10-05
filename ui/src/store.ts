@@ -5,6 +5,7 @@ import type {
   ErrorCode,
   HistoryMessage,
   PermissionRequest,
+  QuestionRequest,
   ServerMessage,
   SessionInfo,
 } from "../../shared/protocol.ts";
@@ -30,6 +31,8 @@ export const [transcripts, setTranscripts] = createState<ReadonlyMap<string, Tra
 export const [lastError, setLastError] = createState<ErrorCode | null>(null);
 /** Demandes d'autorisation en attente, dans l'ordre d'arrivée. */
 export const [permissions, setPermissions] = createState<readonly PermissionRequest[]>([]);
+/** Questions à choix en attente, dans l'ordre d'arrivée. */
+export const [questions, setQuestions] = createState<readonly QuestionRequest[]>([]);
 /** Carte ouverte (sinon : pastille). */
 export const [expanded, setExpanded] = createState(false);
 /** Formulaire de nouvelle session ouvert. */
@@ -73,6 +76,7 @@ export function applyMessage(msg: ServerMessage): void {
       const list = [...msg.sessions].sort(byActivity);
       setSessions(list);
       setPermissions(msg.permissions);
+      setQuestions(msg.questions);
       ensureSelection(list);
       return;
     }
@@ -83,6 +87,15 @@ export function applyMessage(msg: ServerMessage): void {
       setExpanded(true);
       return;
     }
+    case "question.request": {
+      const others = questions.peek().filter((q) => q.requestId !== msg.request.requestId);
+      setQuestions([...others, msg.request]);
+      setExpanded(true);
+      return;
+    }
+    case "question.resolved":
+      setQuestions(questions.peek().filter((q) => q.requestId !== msg.requestId));
+      return;
     case "permission.resolved":
       setPermissions(permissions.peek().filter((p) => p.requestId !== msg.requestId));
       return;

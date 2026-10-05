@@ -57,6 +57,7 @@ export const SessionActivity = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("writing") }),
   z.strictObject({ kind: z.literal("tool"), tool: z.string().min(1).max(256) }),
   z.strictObject({ kind: z.literal("permission") }),
+  z.strictObject({ kind: z.literal("question") }),
   z.strictObject({ kind: z.literal("compacting") }),
 ]);
 export type SessionActivity = z.infer<typeof SessionActivity>;
@@ -123,6 +124,41 @@ export const PermissionOutcome = z.enum([
 ]);
 export type PermissionOutcome = z.infer<typeof PermissionOutcome>;
 
+/** Questions à choix posées par Claude (outil AskUserQuestion). */
+export const QuestionOption = z.strictObject({
+  label: z.string().min(1).max(200),
+  description: z.string().max(2000),
+});
+
+export const Question = z.strictObject({
+  question: z.string().min(1).max(2000),
+  /** Étiquette courte (ex. « Méthode »). */
+  header: z.string().max(64),
+  /** Plusieurs réponses possibles (cases à cocher), sinon une seule. */
+  multiSelect: z.boolean(),
+  options: z.array(QuestionOption).min(1).max(8),
+});
+export type Question = z.infer<typeof Question>;
+
+export const QuestionRequest = z.strictObject({
+  requestId: z.uuid(),
+  sessionId: SessionId,
+  questions: z.array(Question).min(1).max(4),
+  /** Au-delà (millisecondes depuis l'époque Unix), la question est abandonnée. */
+  expiresAt: z.number().int().nonnegative(),
+});
+export type QuestionRequest = z.infer<typeof QuestionRequest>;
+
+export const QuestionOutcome = z.enum(["answered", "dismissed", "timeout", "cancelled"]);
+export type QuestionOutcome = z.infer<typeof QuestionOutcome>;
+
+/**
+ * Réponses, indexées par le texte de la question : libellé choisi, libellés séparés par
+ * « , » (choix multiples), ou texte libre (« Autre »).
+ */
+export const QuestionAnswers = z.record(z.string().min(1).max(2000), z.string().min(1).max(4000));
+export type QuestionAnswers = z.infer<typeof QuestionAnswers>;
+
 // --- UI → daemon -----------------------------------------------------------
 
 export const ClientMessage = z.discriminatedUnion("type", [
@@ -156,6 +192,17 @@ export const ClientMessage = z.discriminatedUnion("type", [
     type: z.literal("session.history"),
     sessionId: SessionId,
   }),
+  /** Réponses à des questions en attente (usage unique). */
+  z.strictObject({
+    type: z.literal("question.answer"),
+    requestId: z.uuid(),
+    answers: QuestionAnswers,
+  }),
+  /** L'utilisateur ne veut pas répondre : Claude en est informé. */
+  z.strictObject({
+    type: z.literal("question.dismiss"),
+    requestId: z.uuid(),
+  }),
   /** Réponse à une demande d'autorisation en attente (usage unique). */
   z.strictObject({
     type: z.literal("permission.answer"),
@@ -175,6 +222,7 @@ export const ErrorCode = z.enum([
   "not_resumable", // aucun identifiant de session Claude Code connu
   "history_unavailable",
   "unknown_request", // demande d'autorisation inconnue, expirée ou déjà traitée
+  "invalid_answers", // réponses ne correspondant pas aux questions posées
   "internal",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
@@ -184,6 +232,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
     type: z.literal("state.snapshot"),
     sessions: z.array(SessionInfo),
     permissions: z.array(PermissionRequest),
+    questions: z.array(QuestionRequest),
   }),
   z.strictObject({
     type: z.literal("session.update"),
@@ -231,6 +280,16 @@ export const ServerMessage = z.discriminatedUnion("type", [
     requestId: z.uuid(),
     sessionId: SessionId,
     outcome: PermissionOutcome,
+  }),
+  z.strictObject({
+    type: z.literal("question.request"),
+    request: QuestionRequest,
+  }),
+  z.strictObject({
+    type: z.literal("question.resolved"),
+    requestId: z.uuid(),
+    sessionId: SessionId,
+    outcome: QuestionOutcome,
   }),
   z.strictObject({
     type: z.literal("error"),

@@ -13,6 +13,7 @@ import { activityText, STATUS_LABEL, usageText, usageTooltip } from "./format.ts
 import { claimKeyboardOnClick, releaseKeyboard, releaseKeyboardWhenDone } from "./keyboard.ts";
 import { shortenPath } from "./paths.ts";
 import { PermissionCard } from "./PermissionCard.tsx";
+import { QuestionCard } from "./QuestionCard.tsx";
 import { applyPlacement, corner, makeDraggable } from "./placement.ts";
 import { Spring, type SpringConfig } from "./spring.ts";
 import {
@@ -20,6 +21,7 @@ import {
   connection,
   expanded,
   permissions,
+  questions,
   selectedId,
   sessions,
   setComposing,
@@ -250,11 +252,12 @@ function Card({ onCreated }: { onCreated: (card: Gtk.Box) => void }) {
         class="permissions"
         hscrollbarPolicy={Gtk.PolicyType.NEVER}
         propagateNaturalHeight
-        maxContentHeight={CARD_HEIGHT / 2}
-        visible={permissions((list) => list.length > 0)}
+        maxContentHeight={(CARD_HEIGHT * 3) / 5}
+        visible={createComputed(() => permissions().length + questions().length > 0)}
       >
         <Gtk.Box orientation={Gtk.Orientation.VERTICAL} spacing={8}>
           <For each={permissions}>{(request) => <PermissionCard request={request} />}</For>
+          <For each={questions}>{(request) => <QuestionCard request={request} />}</For>
         </Gtk.Box>
       </Gtk.ScrolledWindow>
       <Conversation />
@@ -269,6 +272,7 @@ const pillState = createComputed(() => {
   if (connection() !== "connected") return { cls: "offline", text: "daemon absent" };
   const pending = permissions().length;
   if (pending > 0) return { cls: "permission", text: pending > 1 ? `${pending} autorisations` : "autorisation requise" };
+  if (questions().length > 0) return { cls: "question", text: "question pour toi" };
   const busy = sessions().find((s) => s.status === "running" || s.status === "starting");
   if (busy !== undefined) return { cls: "busy", text: activityText(busy) || "travaille…" };
   return { cls: "ready", text: "prêt" };

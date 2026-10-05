@@ -8,9 +8,16 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { ImageAttachment, SessionActivity, SessionUsage } from "../../shared/protocol.ts";
+import type {
+  ImageAttachment,
+  Question,
+  QuestionAnswers,
+  SessionActivity,
+  SessionUsage,
+} from "../../shared/protocol.ts";
 import { assistantEntries } from "./history.ts";
 import type { Decision, PermissionAsk } from "./permissions.ts";
+import { parseQuestions } from "./questions.ts";
 import { settingSourcesFor } from "./trust.ts";
 
 export interface SessionEvents {
@@ -26,6 +33,8 @@ export interface SessionEvents {
   /** Appel d'outil, résumé pour la conversation. */
   onToolUse(summary: string): void;
   onUsage(usage: SessionUsage): void;
+  /** Questions à choix (AskUserQuestion) : réponses de l'utilisateur, ou null. */
+  askQuestions(questions: Question[], signal: AbortSignal): Promise<QuestionAnswers | null>;
   /** Demande d'autorisation d'un outil : la décision vient de l'utilisateur, dans l'UI. */
   requestPermission(ask: PermissionAsk, signal: AbortSignal): Promise<Decision>;
 }
@@ -117,12 +126,19 @@ const DENIED_BY_USER = "Refusé par l'utilisateur dans noko.";
  */
 export function permissionHandler(events: SessionEvents): CanUseTool {
   return async (toolName, input, options) => {
-    // Les questions interactives attendent des réponses dans `updatedInput` : pas encore gérées.
+    // Questions à choix : les réponses de l'utilisateur sont ajoutées dans `answers`, seul
+    // champ modifié de l'entrée (exception documentée dans CLAUDE.md).
     if (toolName === "AskUserQuestion") {
-      return {
-        behavior: "deny",
-        message: "noko ne gère pas encore les questions interactives : pose ta question dans ta réponse.",
-      };
+      const questions = parseQuestions(input);
+      if (questions !== null) {
+        try {
+          const answers = await events.askQuestions(questions, options.signal);
+          if (answers !== null) return { behavior: "allow", updatedInput: { ...input, answers } };
+        } catch {
+          // refus ci-dessous
+        }
+      }
+      return { behavior: "deny", message: "L'utilisateur n'a pas répondu aux questions dans noko." };
     }
     try {
       const decision = await events.requestPermission(

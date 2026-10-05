@@ -192,7 +192,7 @@ test("supprime une socket morte et refuse un fichier ordinaire", async () => {
 test("state.get renvoie un instantané vide au départ", async () => {
   const c = await Client.connect(path);
   c.send({ type: "state.get" });
-  assert.deepEqual(await c.next("state.snapshot"), { type: "state.snapshot", sessions: [], permissions: [] });
+  assert.deepEqual(await c.next("state.snapshot"), { type: "state.snapshot", sessions: [], permissions: [], questions: [] });
   c.sock.destroy();
 });
 
@@ -517,4 +517,56 @@ test("images invalides : connexion fermée", async () => {
     await c.waitClosed();
   }
   assert.equal(fakes.length, 0);
+});
+
+test("questions : réponses validées, usage unique, abandon et annulation", async () => {
+  const c = await Client.connect(path);
+  c.send({ type: "session.create", cwd: dir, prompt: "x" });
+  const id = (await c.next("session.update")).session.id;
+  const fake = fakes[0]!;
+  fake.events.onInit("claude-q");
+  const questions = [
+    { question: "Quel langage ?", header: "Langage", multiSelect: false, options: [{ label: "TS", description: "" }, { label: "Rust", description: "" }] },
+    { question: "Quels tests ?", header: "Tests", multiSelect: true, options: [{ label: "Unitaires", description: "" }, { label: "E2E", description: "" }] },
+  ];
+
+  const pending = fake.events.askQuestions(questions, new AbortController().signal);
+  await c.next("session.update", (m) => m.session.activity?.kind === "question");
+  const { request } = await c.next("question.request");
+  assert.equal(request.sessionId, id);
+  assert.deepEqual(request.questions, questions);
+  c.send({ type: "state.get" });
+  assert.deepEqual((await c.next("state.snapshot")).questions, [request]);
+
+  // Réponses incomplètes ou en trop : refusées, la question reste ouverte.
+  c.send({ type: "question.answer", requestId: request.requestId, answers: { "Quel langage ?": "TS" } });
+  assert.equal((await c.next("error")).code, "invalid_answers");
+  c.send({
+    type: "question.answer",
+    requestId: request.requestId,
+    answers: { "Quel langage ?": "TS", "Quels tests ?": "E2E", "Autre ?": "x" },
+  });
+  assert.equal((await c.next("error")).code, "invalid_answers");
+
+  const answers = { "Quel langage ?": "TS", "Quels tests ?": "Unitaires, E2E" };
+  c.send({ type: "question.answer", requestId: request.requestId, answers });
+  assert.deepEqual(await pending, answers);
+  assert.equal((await c.next("question.resolved")).outcome, "answered");
+  c.send({ type: "question.answer", requestId: request.requestId, answers });
+  assert.equal((await c.next("error")).code, "unknown_request");
+
+  // Ignorer : aucune réponse transmise.
+  const dismissed = fake.events.askQuestions(questions, new AbortController().signal);
+  const second = (await c.next("question.request")).request;
+  c.send({ type: "question.dismiss", requestId: second.requestId });
+  assert.equal(await dismissed, null);
+  assert.equal((await c.next("question.resolved")).outcome, "dismissed");
+
+  // Arrêter la session abandonne ses questions.
+  const cancelled = fake.events.askQuestions(questions, new AbortController().signal);
+  await c.next("question.request");
+  c.send({ type: "session.stop", sessionId: id });
+  assert.equal(await cancelled, null);
+  assert.equal((await c.next("question.resolved")).outcome, "cancelled");
+  c.sock.destroy();
 });

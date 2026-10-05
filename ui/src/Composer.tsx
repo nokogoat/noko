@@ -25,7 +25,8 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   invalid_cwd: "Dossier introuvable.",
   not_resumable: "Cette session ne peut pas être reprise.",
   history_unavailable: "Historique indisponible.",
-  unknown_request: "Demande d'autorisation expirée ou déjà traitée.",
+  unknown_request: "Demande expirée ou déjà traitée.",
+  invalid_answers: "Réponds à toutes les questions.",
   internal: "Erreur interne du daemon.",
 };
 

@@ -51,6 +51,10 @@ window.noko-catcher {
   border-color: var(--noko-warn);
 }
 
+.shell.question {
+  border-color: var(--noko-accent);
+}
+
 /* --- Pastille ------------------------------------------------------------- */
 
 .pill {
@@ -84,6 +88,11 @@ window.noko-catcher {
 .pill.permission .dot,
 .pill.permission .state {
   color: var(--noko-warn);
+}
+
+.pill.question .dot,
+.pill.question .state {
+  color: var(--noko-accent);
 }
 
 .pill.offline .dot {
@@ -265,4 +274,50 @@ window.noko-catcher {
   margin: 2px;
   border-radius: 999px;
   font-size: 0.8em;
+}
+
+/* --- Questions ------------------------------------------------------------ */
+
+.questions-card {
+  padding: 10px;
+  background: var(--noko-surface);
+  border: 1px solid var(--noko-accent);
+  border-radius: 10px;
+}
+
+.question-header {
+  font-size: 0.75em;
+  font-weight: bold;
+  color: var(--noko-accent);
+}
+
+.question-text {
+  font-weight: bold;
+}
+
+.question-hint,
+.option-description {
+  font-size: 0.8em;
+  color: var(--noko-muted);
+}
+
+.questions-card button.allow {
+  border-color: var(--noko-ok);
+  color: var(--noko-ok);
+}
+
+.questions-card button.deny {
+  color: var(--noko-muted);
+}
+
+.questions-card button:disabled {
+  opacity: 0.4;
+}
+
+.questions-card entry {
+  background: var(--noko-surface-hover);
+  color: var(--noko-fg);
+  border: 1px solid var(--noko-border);
+  border-radius: 8px;
+  padding: 2px 8px;
 }
