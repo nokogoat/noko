@@ -21,3 +21,8 @@ shadow = "rgba(0, 0, 0, 0.35)"
 [shape]
 radius = 17        # rayon des coins, en pixels (0 à 32)
 font_scale = 0.95  # taille du texte (0.7 à 1.5)
+edge = 0           # liseré de la couleur d'accent sous la carte, en pixels (0 à 4)
+
+[font]
+# family = "JetBrains Mono"   # police installée (voir `fc-list`) ; absente = celle du système
+weight = 400                  # graisse : 100 (fin) à 900 (très gras), par centaines

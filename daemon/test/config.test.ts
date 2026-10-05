@@ -80,6 +80,33 @@ test("thème valide → CSS composé uniquement de variables", () => {
   assert.match(themeCss(theme, "rgba(1, 2, 3, 1)"), /--noko-accent: rgba\(1, 2, 3, 1\);/);
 });
 
+test("police et liseré du thème", () => {
+  const base = parseTheme(THEME).value!;
+  assert.match(themeCss(base), /font-weight: 400;/);
+  assert.doesNotMatch(themeCss(base), /font-family|border-bottom/);
+  assert.match(themeCss(base), /--noko-radius-md: 8px;/);
+
+  const { value, error } = parseTheme(
+    `${THEME.replace("radius = 12", "radius = 2\nedge = 2")}\n[font]\nfamily = "JetBrainsMono Nerd Font Propo"\nweight = 800\n`,
+  );
+  assert.equal(error, null);
+  const css = themeCss(value!);
+  assert.match(css, /font-family: "JetBrainsMono Nerd Font Propo", sans-serif;/);
+  assert.match(css, /font-weight: 800;/);
+  assert.match(css, /border-bottom: 2px solid var\(--noko-accent\);/);
+  assert.match(css, /--noko-radius-md: 2px;/);
+
+  for (const evil of ['x"; } * { background-image: url(x', "a\\\"b", "x;y", " espace", "url(x)", ""]) {
+    const parsed = parseTheme(`${THEME}\n[font]\nfamily = ${JSON.stringify(evil)}\n`);
+    assert.equal(parsed.value, null, evil);
+    assert.match(parsed.error ?? "", /font\.family/);
+  }
+  for (const weight of [450, 1000, 0]) {
+    assert.equal(parseTheme(`${THEME}\n[font]\nweight = ${weight}\n`).value, null, String(weight));
+  }
+  assert.equal(parseTheme(THEME.replace("radius = 12", "radius = 12\nedge = 9")).value, null);
+});
+
 test("thème refusé en entier si une couleur n'est pas une couleur", () => {
   for (const evil of [
     'url("file:///etc/passwd")',

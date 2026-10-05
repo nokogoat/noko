@@ -90,6 +90,9 @@ const COLOR_RE =
   /^(#[0-9a-fA-F]{3,4}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\))$/;
 const Color = z.string().max(64).regex(COLOR_RE, "couleur invalide");
 
+/** Nom de police : lettres, chiffres, espaces, « - », « _ », « . » (il est mis entre guillemets). */
+const FONT_FAMILY_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
+
 const ThemeColors = z.object({
   background: Color,
   surface: Color,
@@ -111,12 +114,22 @@ export const ThemeSchema = z.object({
   colors: ThemeColors,
   shape: z
     .object({
-      /** Rayon des coins de la carte et de la pastille, en pixels. */
+      /** Rayon des coins de la carte et de la pastille, en pixels (plafonné à l'intérieur). */
       radius: z.number().int().min(0).max(32).default(17),
       /** Taille du texte, relative à celle du système (1 = identique). */
       font_scale: z.number().min(0.7).max(1.5).default(0.95),
+      /** Liseré de la couleur d'accent sous la carte et la pastille, en pixels (0 = aucun). */
+      edge: z.number().int().min(0).max(4).default(0),
     })
-    .default({ radius: 17, font_scale: 0.95 }),
+    .default({ radius: 17, font_scale: 0.95, edge: 0 }),
+  font: z
+    .object({
+      /** Famille installée (fc-list) ; absente = police du système. */
+      family: z.string().regex(FONT_FAMILY_RE, "nom de police invalide").optional(),
+      /** Graisse du texte, de 100 (fin) à 900 (très gras). */
+      weight: z.number().int().min(100).max(900).multipleOf(100).default(400),
+    })
+    .default({ weight: 400 }),
 });
 export type Theme = z.infer<typeof ThemeSchema>;
 
@@ -157,15 +170,20 @@ export function themeCss(theme: Theme, accentOverride: string | null = null): st
     if (!COLOR_RE.test(value)) continue;
     lines.push(`  ${variable}: ${value};`);
   }
-  lines.push(`  --noko-radius: ${theme.shape.radius}px;`);
-  return [
-    "window.noko-widget {",
-    ...lines,
-    `  font-size: ${theme.shape.font_scale}em;`,
-    "}",
-    `.shell { border-radius: ${theme.shape.radius}px; }`,
-    "",
-  ].join("\n");
+  const { radius, font_scale, edge } = theme.shape;
+  lines.push(`  --noko-radius: ${radius}px;`);
+  // Coins des éléments intérieurs : jamais plus ronds que la carte.
+  lines.push(`  --noko-radius-sm: ${Math.min(radius, 6)}px;`);
+  lines.push(`  --noko-radius-md: ${Math.min(radius, 8)}px;`);
+  lines.push(`  --noko-radius-lg: ${Math.min(radius, 10)}px;`);
+  lines.push(`  font-size: ${font_scale}em;`);
+  lines.push(`  font-weight: ${theme.font.weight};`);
+  // Revalidé ici, comme les couleurs : rien d'autre qu'un nom de police entre guillemets.
+  const family = theme.font.family;
+  if (family !== undefined && FONT_FAMILY_RE.test(family)) lines.push(`  font-family: "${family}", sans-serif;`);
+  const shell = [`border-radius: ${radius}px;`];
+  if (edge > 0) shell.push(`border-bottom: ${edge}px solid var(--noko-accent);`);
+  return ["window.noko-widget {", ...lines, "}", `.shell { ${shell.join(" ")} }`, ""].join("\n");
 }
 
 /** Couleur Hyprland « aarrggbb » (ex. « ee33ccff ») → rgba() CSS, ou null. */
